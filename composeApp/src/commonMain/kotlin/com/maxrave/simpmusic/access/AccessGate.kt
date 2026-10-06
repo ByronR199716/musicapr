@@ -22,9 +22,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -43,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -60,6 +62,8 @@ import org.jetbrains.compose.resources.painterResource
 import org.koin.compose.koinInject
 import simpmusic.composeapp.generated.resources.Res
 import simpmusic.composeapp.generated.resources.app_icon
+
+private val RedeemColor = Color(0xFF7C4DFF)
 
 /** El acceso activo (código o demo), para mostrar el tiempo restante dentro de la app. */
 val LocalAccessStatus = compositionLocalOf<AccessState.Unlocked?> { null }
@@ -211,25 +215,24 @@ private fun AccessScreen(
         Button(
             onClick = submit,
             enabled = canSubmit,
-            modifier = Modifier.widthIn(max = 420.dp).fillMaxWidth().height(48.dp),
+            colors =
+                ButtonDefaults.buttonColors(
+                    containerColor = RedeemColor,
+                    contentColor = Color.White,
+                    disabledContainerColor = RedeemColor.copy(alpha = 0.35f),
+                    disabledContentColor = Color.White.copy(alpha = 0.7f),
+                ),
+            modifier = Modifier.widthIn(max = 420.dp).fillMaxWidth().height(52.dp),
         ) {
             if (busy) {
-                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
             } else {
-                Text("Entrar")
-            }
-        }
-        if (config?.demoEnabled != false) {
-            OutlinedButton(
-                onClick = { scope.launch { controller.startDemo() } },
-                enabled = !busy,
-                modifier = Modifier.widthIn(max = 420.dp).fillMaxWidth().height(48.dp),
-            ) {
-                Text("Probar gratis ${config?.demoHours ?: 6} horas")
+                // typo() lleva su propio color; el texto toma el del botón.
+                Text("Canjear código", color = LocalContentColor.current, fontWeight = FontWeight.Bold)
             }
         }
         TextButton(onClick = { openUrl(donationUrl) }) {
-            Text("Apoyar al creador con una donación")
+            Text("Apoyar al creador con una donación", color = LocalContentColor.current)
         }
         Spacer(Modifier.height(8.dp))
         Text(
@@ -284,14 +287,14 @@ private fun DemoBadge(
         AlertDialog(
             onDismissRequest = { showDialog = false },
             title = { Text("¿Ya tienes un código?") },
-            text = { Text("Saldrás de la demo para escribir tu código. Si vuelves a tocar \"Probar gratis\", la demo sigue con el tiempo que le quedaba.") },
+            text = { Text("Saldrás de la demo para escribir tu código de regalo.") },
             confirmButton = {
                 TextButton(onClick = {
                     showDialog = false
                     scope.launch { controller.signOut() }
-                }) { Text("Ingresar código") }
+                }) { Text("Ingresar código", color = LocalContentColor.current) }
             },
-            dismissButton = { TextButton(onClick = { showDialog = false }) { Text("Seguir en la demo") } },
+            dismissButton = { TextButton(onClick = { showDialog = false }) { Text("Seguir en la demo", color = LocalContentColor.current) } },
         )
     }
 }

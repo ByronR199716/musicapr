@@ -30,11 +30,7 @@ fun EndOfPage(withoutCredit: Boolean = false) {
     ) {
         if (!withoutCredit) {
             Text(
-                "@${now().year} " + stringResource(Res.string.app_name) + " " +
-                    stringResource(
-                        Res.string.version_format,
-                        VersionManager.getVersionName(),
-                    ) + "\nmaxrave-dev",
+                "${now().year} " + stringResource(Res.string.app_name) + " V2.3",
                 style = typo().bodySmall,
                 textAlign = TextAlign.Center,
                 modifier =

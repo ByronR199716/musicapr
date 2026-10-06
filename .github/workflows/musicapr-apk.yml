@@ -1,4 +1,4 @@
-name: Compilar APK (Musica Pr)
+name: Compilar APK (PremiumMusic)
 
 # Se ejecuta al subir cambios a la rama principal, o a mano desde la pestaña "Actions".
 on:
@@ -54,20 +54,20 @@ jobs:
           ./build_and_sign_apk.sh --release --foss
           mkdir -p salida
           for f in androidApp/build/outputs/apk/release/SimpMusic-foss-*.apk; do
-            cp "$f" "salida/MusicaPr-$(basename "$f" | sed 's/^SimpMusic-foss-//')"
+            cp "$f" "salida/PremiumMusic-$(basename "$f" | sed 's/^SimpMusic-foss-//')"
           done
           ls -la salida
 
       - name: Guardar APK en esta ejecución
         uses: actions/upload-artifact@v4
         with:
-          name: MusicaPr-apk
+          name: PremiumMusic-apk
           path: salida/*.apk
 
       - name: Publicar en Releases (link de descarga directo)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: Musica Pr build ${{ github.run_number }}
+          name: PremiumMusic build ${{ github.run_number }}
           body: "APK compilado automáticamente. Para la mayoría de teléfonos usa el archivo que termina en universal-release.apk."
           files: salida/*.apk
