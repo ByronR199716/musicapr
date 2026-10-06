@@ -12,7 +12,7 @@ object AccessConfig {
     const val SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRjZ2F4d2t4cWJ5dnV3Z3Npb25mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEyMzIxODUsImV4cCI6MjEwNjgwODE4NX0.Bql5bv4ZIPASPw558vnkTz9idcYmqqqWleMYrzcCXsc"
 
     /** Enlace al código fuente de esta versión (obligación de la licencia GPL-3.0). */
-    const val SOURCE_CODE_URL = "https://github.com/TU_USUARIO/SimpMusic"
+    const val SOURCE_CODE_URL = "https://github.com/ByronR199716/musicapr"
 
     /** Enlace de donación si el servidor no responde. El real se cambia desde el panel. */
     const val DEFAULT_DONATION_URL = "https://www.buymeacoffee.com/maxrave"
