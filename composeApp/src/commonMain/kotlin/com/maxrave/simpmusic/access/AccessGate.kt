@@ -230,19 +230,21 @@ private fun AccessScreen(
                 Text("Canjear código", color = LocalContentColor.current, fontWeight = FontWeight.Bold)
             }
         }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = "Versión no oficial basada en SimpMusic, de maxrave-dev (licencia GPL-3.0). Toca aquí para ver el código fuente.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier =
-                Modifier
-                    .widthIn(max = 420.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { openUrl(AccessConfig.SOURCE_CODE_URL) }
-                    .padding(8.dp),
-        )
+        // Aviso oculto en la app (se deja como referencia). La atribución a SimpMusic y su
+        // licencia GPL-3.0 siguen en Ajustes > Versión (créditos) y en el repositorio público.
+        // Spacer(Modifier.height(8.dp))
+        // Text(
+        //     text = "Versión no oficial basada en SimpMusic, de maxrave-dev (licencia GPL-3.0). Toca aquí para ver el código fuente.",
+        //     style = MaterialTheme.typography.bodySmall,
+        //     color = MaterialTheme.colorScheme.onSurfaceVariant,
+        //     textAlign = TextAlign.Center,
+        //     modifier =
+        //         Modifier
+        //             .widthIn(max = 420.dp)
+        //             .clip(RoundedCornerShape(8.dp))
+        //             .clickable { openUrl(AccessConfig.SOURCE_CODE_URL) }
+        //             .padding(8.dp),
+        // )
     }
 }
 
