@@ -141,7 +141,6 @@ private fun AccessScreen(
     val config by controller.config.collectAsState()
     val busy by controller.busy.collectAsState()
     var field by remember { mutableStateOf(TextFieldValue("")) }
-    val donationUrl = config?.donationUrl ?: AccessConfig.DEFAULT_DONATION_URL
     val canSubmit = !busy && AccessController.normalizeCode(field.text).length >= 6
     val submit: () -> Unit = { if (canSubmit) scope.launch { controller.submitCode(field.text) } }
 
@@ -230,9 +229,6 @@ private fun AccessScreen(
                 // typo() lleva su propio color; el texto toma el del botón.
                 Text("Canjear código", color = LocalContentColor.current, fontWeight = FontWeight.Bold)
             }
-        }
-        TextButton(onClick = { openUrl(donationUrl) }) {
-            Text("Apoyar al creador con una donación", color = LocalContentColor.current)
         }
         Spacer(Modifier.height(8.dp))
         Text(
