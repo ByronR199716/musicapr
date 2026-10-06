@@ -359,27 +359,12 @@ fun HomeScreen(
     }
     LaunchedEffect(openAppTime, shareLyricsPermissions) {
         Logger.w("HomeScreen", "openAppTime: $openAppTime, shareLyricsPermissions: $shareLyricsPermissions")
-        if (openAppTime >= 10 && openAppTime % 10 == 0 && openAppTime <= 50) {
-            showReviewDialog = true
-        } else if ((openAppTime == 1 || openAppTime % 15 == 0) && openAppTime <= 60 && !shareLyricsPermissions) {
-            showRequestShareLyricsPermissions = true
-        } else if (openAppTime == 5) {
-            // Blog promo: one-shot after 5 app opens, bump key suffix to re-promote later
-            if (sharedViewModel.getString(BLOG_PROMO_KEY) != "true") {
-                showBlogPromoDialog = true
-            }
-        } else if (openAppTime % 10 == 6 &&
-            openAppTime <= 46 &&
-            sharedViewModel.getString(FOOTGUNS_STAR_KEY) != "true"
-        ) {
-            // kotlin-footguns star prompt: 6, 16, 26, 36, 46 - one open after each review milestone,
-            // and clear of the share-lyrics (15, 45) and blog-promo (5) milestones
-            showFootgunsDialog = true
-        } else {
-            showReviewDialog = false
-            showFootgunsDialog = false
-            showRequestShareLyricsPermissions = false
-        }
+        // PremiumMusic: ventanas emergentes del original desactivadas
+        // (calificar app, compartir letras, blog del desarrollador, estrella en GitHub).
+        showReviewDialog = false
+        showFootgunsDialog = false
+        showBlogPromoDialog = false
+        showRequestShareLyricsPermissions = false
     }
 
     val shouldStartPaginate =

@@ -14,7 +14,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-/** "Mi acceso" en Ajustes: tipo de acceso, tiempo restante y fecha de vencimiento. */
+/** "Mi acceso" en Ajustes: suscripción (código enmascarado), tiempo restante y fecha de vencimiento. */
 @Composable
 fun AccessStatusGroup() {
     val status = LocalAccessStatus.current ?: return
@@ -42,15 +42,21 @@ fun AccessStatusGroup() {
             subtitle = expiresText,
         )
         SettingItem(
-            title = "Tipo de acceso",
+            title = "Suscripción",
             subtitle =
                 if (isDemo || status.code.isBlank()) {
                     "Demo de prueba"
                 } else {
-                    "Código ${AccessController.formatCode(status.code)}"
+                    maskCode(status.code)
                 },
         )
     }
+}
+
+/** Muestra solo los últimos 4 caracteres del código: XXXX-XXXX-AB12. */
+private fun maskCode(code: String): String {
+    val clean = code.filter { it.isLetterOrDigit() }.uppercase()
+    return "XXXX-XXXX-${clean.takeLast(4)}"
 }
 
 private fun formatRemaining(ms: Long): String {
