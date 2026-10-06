@@ -53,6 +53,8 @@ import pub.devrel.easypermissions.EasyPermissions
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
+private const val MUSICAPR_SPANISH_DEFAULT = "musicapr_spanish_default"
+
 @Suppress("DEPRECATION")
 class MainActivity : AppCompatActivity() {
     val viewModel: SharedViewModel by inject()
@@ -153,7 +155,7 @@ class MainActivity : AppCompatActivity() {
                     putString("location", "US")
                 }
             } else {
-                putString(SELECTED_LANGUAGE, "en-US")
+                putString(SELECTED_LANGUAGE, "es-ES")
             }
             // Fetch the selected language from wherever it was stored. In this case its SharedPref
             getString(SELECTED_LANGUAGE)?.let {
@@ -164,6 +166,13 @@ class MainActivity : AppCompatActivity() {
                 // Set the migration flag to ensure that this is executed only once
                 putString(FIRST_TIME_MIGRATION, STATUS_DONE)
             }
+        }
+        // Musica Pr: español por defecto (una sola vez, también en instalaciones existentes).
+        // Si el usuario cambia el idioma en Ajustes después, se respeta su elección.
+        if (getString(MUSICAPR_SPANISH_DEFAULT) != STATUS_DONE) {
+            putString(SELECTED_LANGUAGE, "es-ES")
+            AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags("es-ES"))
+            putString(MUSICAPR_SPANISH_DEFAULT, STATUS_DONE)
         }
         if (AppCompatDelegate.getApplicationLocales().toLanguageTags() !=
             getString(
@@ -283,7 +292,9 @@ class MainActivity : AppCompatActivity() {
         mediaPlayerHandler.pushPlayerError = { it ->
             pushPlayerError(it)
         }
-        mediaPlayerHandler.showToast = { type ->
+        mediaPlayerHandler.showToast = showToast@{ type ->
+            // Musica Pr: SponsorBlock sigue saltando los segmentos, pero sin avisar cada vez.
+            if (type is ToastType.SponsorBlockSkip) return@showToast
             viewModel.makeToast(
                 when (type) {
                     is ToastType.ExplicitContent -> {
@@ -305,11 +316,8 @@ class MainActivity : AppCompatActivity() {
         Logger.d("Service", "Service started")
     }
 
-    private fun checkForUpdate() {
-        if (viewModel.shouldCheckForUpdate()) {
-            viewModel.checkForUpdate()
-        }
-    }
+    // Musica Pr: la búsqueda de actualizaciones apunta a la app oficial de SimpMusic, no a esta versión.
+    private fun checkForUpdate() = Unit
 
     private fun putString(
         key: String,

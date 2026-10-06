@@ -228,7 +228,8 @@ fun runDesktopApp(args: Array<String> = emptyArray()) {
     }
 
     val mediaPlayerHandler by inject<MediaPlayerHandler>(MediaPlayerHandler::class.java)
-    mediaPlayerHandler.showToast = { type ->
+    mediaPlayerHandler.showToast = showToast@{ type ->
+        if (type is ToastType.SponsorBlockSkip) return@showToast
         showToast(
             when (type) {
                 ToastType.ExplicitContent -> {
