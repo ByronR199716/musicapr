@@ -17,5 +17,5 @@ object AccessConfig {
     /** Enlace de donación si el servidor no responde. El real se cambia desde el panel. */
     const val DEFAULT_DONATION_URL = "https://www.buymeacoffee.com/maxrave"
 
-    const val APP_TITLE = "Musica Pr"
+    const val APP_TITLE = "PremiumMusic"
 }

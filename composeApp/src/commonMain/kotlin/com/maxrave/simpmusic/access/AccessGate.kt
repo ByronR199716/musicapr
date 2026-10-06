@@ -30,6 +30,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -58,6 +60,9 @@ import org.jetbrains.compose.resources.painterResource
 import org.koin.compose.koinInject
 import simpmusic.composeapp.generated.resources.Res
 import simpmusic.composeapp.generated.resources.app_icon
+
+/** El acceso activo (código o demo), para mostrar el tiempo restante dentro de la app. */
+val LocalAccessStatus = compositionLocalOf<AccessState.Unlocked?> { null }
 
 /**
  * Envuelve la app: muestra la pantalla de acceso hasta que haya un código o una demo válidos.
@@ -113,9 +118,11 @@ fun AccessGate(
         }
 
         is AccessState.Unlocked -> {
-            Box(Modifier.fillMaxSize()) {
-                content()
-                if (s.kind == "demo") DemoBadge(controller, s)
+            CompositionLocalProvider(LocalAccessStatus provides s) {
+                Box(Modifier.fillMaxSize()) {
+                    content()
+                    if (s.kind == "demo") DemoBadge(controller, s)
+                }
             }
         }
     }

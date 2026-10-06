@@ -20,6 +20,7 @@ sealed interface AccessState {
         val kind: String,
         val expiresMs: Long,
         val serverOffsetMs: Long,
+        val code: String = "",
     ) : AccessState
 }
 
@@ -115,7 +116,7 @@ class AccessController(
     }
 
     private fun unlock(s: Session) {
-        _state.value = AccessState.Unlocked(s.kind, s.expiresMs, s.offsetMs)
+        _state.value = AccessState.Unlocked(s.kind, s.expiresMs, s.offsetMs, s.code)
     }
 
     /** Revisa el acceso guardado. Se llama al abrir la app y cada minuto mientras está abierta. */
