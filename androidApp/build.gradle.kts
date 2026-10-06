@@ -20,7 +20,7 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.maxrave.simpmusic"
+        applicationId = "ec.musicapr.app"
         minSdk = 26
         targetSdk = 36
         versionCode =

@@ -1,0 +1,620 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Panel de Códigos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: barra superior + pestañas; tablero de cifras, generador tipo "talonario" de gift cards, tabla operable y panel lateral de detalle. */
+:root {
+  --bg: #F3F4F8;
+  --surface: #FFFFFF;
+  --surface-2: #ECEDF4;
+  --fg: #15161F;
+  --muted: #5D6075;
+  --line: #DADCE7;
+  --accent: #4B3FD6;
+  --accent-fg: #FFFFFF;
+  --accent-soft: #E7E4FB;
+  --ok: #157A4A;      --ok-soft: #DDF3E7;
+  --warn: #9A5B00;    --warn-soft: #FBEBD2;
+  --bad: #B42335;     --bad-soft: #FADDE1;
+  --idle: #3D5A80;    --idle-soft: #E0E8F3;
+  --shadow: 0 1px 2px rgba(21,22,31,.06), 0 6px 24px rgba(21,22,31,.06);
+  --f-display: "Unbounded", "Figtree", system-ui, sans-serif;
+  --f-body: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0F1016; --surface: #181A23; --surface-2: #20222E; --fg: #ECEDF5; --muted: #9A9DB3; --line: #2C2F3D;
+    --accent: #8F86FF; --accent-fg: #0F1016; --accent-soft: #272449;
+    --ok: #5FD39A; --ok-soft: #13301F; --warn: #F2B35B; --warn-soft: #33260F; --bad: #FF7D8C; --bad-soft: #3A1820;
+    --idle: #8FB1DD; --idle-soft: #1B2737; --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 28px rgba(0,0,0,.3);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0F1016; --surface: #181A23; --surface-2: #20222E; --fg: #ECEDF5; --muted: #9A9DB3; --line: #2C2F3D;
+  --accent: #8F86FF; --accent-fg: #0F1016; --accent-soft: #272449;
+  --ok: #5FD39A; --ok-soft: #13301F; --warn: #F2B35B; --warn-soft: #33260F; --bad: #FF7D8C; --bad-soft: #3A1820;
+  --idle: #8FB1DD; --idle-soft: #1B2737; --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 28px rgba(0,0,0,.3);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 var(--f-body); -webkit-font-smoothing: antialiased; }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+h1, h2, h3 { margin: 0; text-wrap: balance; }
+.mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-inline: 16px; }
+@media (min-width: 700px) { .wrap { padding-inline: 28px; } }
+
+/* Barra superior */
+.top { background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; }
+.top .wrap { display: flex; align-items: center; gap: 16px; min-height: 60px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; font-family: var(--f-display); font-weight: 700; font-size: 15px; letter-spacing: .01em; }
+.brand-mark { width: 26px; height: 26px; border-radius: 50%; background: radial-gradient(circle, var(--surface) 0 3px, var(--accent) 3.5px 7px, var(--fg) 7.5px); }
+.tabs { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; }
+.tab { border: 0; background: none; padding: 8px 12px; border-radius: 8px; cursor: pointer; color: var(--muted); font-weight: 600; }
+.tab[aria-selected="true"] { background: var(--accent-soft); color: var(--accent); }
+.who { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
+
+.banner { background: var(--warn-soft); color: var(--warn); font-size: 13.5px; }
+.banner .wrap { padding-block: 9px; }
+
+main { padding-block: 24px 64px; display: grid; gap: 22px; }
+.section-title { font-family: var(--f-display); font-weight: 500; font-size: 17px; }
+.sub { color: var(--muted); font-size: 13.5px; }
+
+/* Cifras */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px; display: grid; gap: 2px; }
+.stat b { font-family: var(--f-display); font-weight: 500; font-size: 24px; font-variant-numeric: tabular-nums; }
+.stat span { color: var(--muted); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+/* Generador */
+.gen { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); display: grid; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 900px) { .gen { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); } }
+.gen-form { padding: 20px; display: grid; gap: 14px; align-content: start; }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+label.f { display: grid; gap: 5px; font-size: 12.5px; font-weight: 600; color: var(--muted); letter-spacing: .02em; }
+.in { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; min-width: 0; }
+.in:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+.presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 5px 11px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--muted); }
+.chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.custom { display: flex; gap: 8px; }
+.custom .in { flex: 1; }
+.btn { border: 1px solid transparent; background: var(--accent); color: var(--accent-fg); border-radius: 8px; padding: 9px 15px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
+.btn:disabled { opacity: .55; cursor: progress; }
+.btn.ghost { background: transparent; color: var(--fg); border-color: var(--line); }
+.btn.danger { background: var(--bad); color: #fff; }
+.btn.sm { padding: 5px 10px; font-size: 13px; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+/* Talonario de códigos generados */
+.stub { border-top: 1px dashed var(--line); background: var(--surface-2); padding: 20px; display: grid; gap: 12px; align-content: start; border-radius: 0 0 14px 14px; min-width: 0; }
+@media (min-width: 900px) { .stub { border-top: 0; border-left: 1px dashed var(--line); border-radius: 0 14px 14px 0; } }
+.stub-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cards { display: grid; gap: 8px; max-height: 300px; overflow: auto; padding-right: 2px; }
+.gcard { background: var(--surface); border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; gap: 10px; position: relative; }
+.gcard::before, .gcard::after { content: ""; position: absolute; top: 50%; width: 10px; height: 10px; border-radius: 50%; background: var(--surface-2); border: 1px solid var(--line); transform: translateY(-50%); }
+.gcard::before { left: -6px; } .gcard::after { right: -6px; }
+.gcode { font-family: var(--f-mono); font-weight: 600; font-size: 15.5px; letter-spacing: .08em; }
+.gmeta { color: var(--muted); font-size: 12px; }
+.empty { color: var(--muted); font-size: 13.5px; padding: 18px; text-align: center; border: 1px dashed var(--line); border-radius: 9px; }
+
+/* Tabla */
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.toolbar { padding: 14px 16px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; border-bottom: 1px solid var(--line); }
+.toolbar .in { max-width: 260px; }
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: left; font-size: 11.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); font-weight: 700; padding: 10px 14px; background: var(--surface-2); white-space: nowrap; }
+td { padding: 11px 14px; border-top: 1px solid var(--line); white-space: nowrap; vertical-align: middle; }
+tbody tr { cursor: pointer; }
+tbody tr:hover td { background: var(--surface-2); }
+td.note { max-width: 220px; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 999px; font-size: 12.5px; font-weight: 700; }
+.st-unused { background: var(--idle-soft); color: var(--idle); }
+.st-active { background: var(--ok-soft); color: var(--ok); }
+.st-expired { background: var(--warn-soft); color: var(--warn); }
+.st-disabled { background: var(--bad-soft); color: var(--bad); }
+.pager { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; flex-wrap: wrap; }
+.slots { display: inline-flex; gap: 3px; vertical-align: middle; margin-right: 6px; }
+.slots i { width: 9px; height: 9px; border-radius: 2px; background: var(--line); }
+.slots i.on { background: var(--accent); }
+
+/* Detalle lateral */
+.scrim { position: fixed; inset: 0; background: rgba(10,10,20,.35); z-index: 20; }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(440px, 100%); background: var(--surface); z-index: 21; box-shadow: var(--shadow); display: flex; flex-direction: column; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+.drawer-head { padding: 18px 20px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: start; gap: 10px; }
+.drawer-body { padding: 18px 20px; overflow: auto; display: grid; gap: 18px; align-content: start; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 14px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.dev { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; }
+.dev small { color: var(--muted); display: block; }
+.confirm { background: var(--bad-soft); color: var(--bad); padding: 12px; border-radius: 9px; display: grid; gap: 10px; font-size: 14px; }
+.x { border: 0; background: var(--surface-2); width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font-size: 18px; line-height: 1; }
+
+/* Ajustes */
+.settings { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px; display: grid; gap: 18px; max-width: 760px; }
+.switch { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+.help { color: var(--muted); font-size: 12.5px; font-weight: 400; letter-spacing: 0; }
+
+/* Login */
+.login { min-height: 100%; display: grid; place-items: center; padding: 48px 16px; }
+.login-card { width: min(380px, 100%); background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 28px; display: grid; gap: 16px; box-shadow: var(--shadow); }
+.err { color: var(--bad); font-size: 13.5px; }
+
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 9px; font-weight: 600; font-size: 14px; z-index: 40; max-width: calc(100% - 32px); }
+@media (prefers-reduced-motion: no-preference) { .drawer { animation: slide .18s ease-out; } @keyframes slide { from { transform: translateX(24px); opacity: .6; } } }
+</style>
+
+<div id="app"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
+<script>
+// =====================================================================
+//  CONFIGURACIÓN: pega aquí los datos de tu proyecto Supabase
+//  (Supabase > Project Settings > API)
+// =====================================================================
+const SUPABASE_URL = 'PEGA_AQUI_TU_PROJECT_URL';       // ej: https://abcd1234.supabase.co
+const SUPABASE_ANON_KEY = 'PEGA_AQUI_TU_ANON_PUBLIC_KEY';
+// =====================================================================
+
+const PREVIEW = !/^https:\/\//.test(SUPABASE_URL);
+if (!PREVIEW && typeof window.supabase === 'undefined') {
+  document.getElementById('app').innerHTML = '<p style="padding:24px">No se pudo cargar la librería de Supabase. Revisa tu conexión a internet y recarga la página.</p>';
+  throw new Error('supabase-js no cargó');
+}
+const PAGE_SIZE = 50;
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtCode = c => (c || '').match(/.{1,4}/g)?.join('-') ?? '';
+const normCode = s => (s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+const dtf = new Intl.DateTimeFormat('es-EC', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+const fmtDate = d => d ? dtf.format(new Date(d)) : '—';
+function fmtHours(h) {
+  if (h % 8760 === 0) return `${h / 8760} año${h / 8760 > 1 ? 's' : ''}`;
+  if (h % 24 === 0) return `${h / 24} día${h / 24 > 1 ? 's' : ''}`;
+  return `${h} hora${h > 1 ? 's' : ''}`;
+}
+function remaining(exp) {
+  const ms = new Date(exp) - Date.now();
+  if (ms <= 0) return 'vencido';
+  const h = Math.floor(ms / 3.6e6), d = Math.floor(h / 24);
+  if (d >= 1) return `quedan ${d} d ${h % 24} h`;
+  const m = Math.floor(ms / 6e4) % 60;
+  return `quedan ${h} h ${m} min`;
+}
+function statusOf(c) {
+  if (c.disabled) return 'disabled';
+  if (!c.activated_at) return 'unused';
+  return new Date(c.expires_at) > Date.now() ? 'active' : 'expired';
+}
+const STATUS = { unused: 'Sin usar', active: 'Activo', expired: 'Vencido', disabled: 'Deshabilitado' };
+const pill = s => `<span class="pill st-${s}">${STATUS[s]}</span>`;
+function toast(msg) {
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.append(t);
+  setTimeout(() => t.remove(), 2600);
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); toast('Copiado'); }
+  catch { const ta = document.createElement('textarea'); ta.value = text; document.body.append(ta); ta.select();
+    try { document.execCommand('copy'); toast('Copiado'); } catch { toast('Selecciona el texto y cópialo manualmente'); } ta.remove(); }
+}
+
+// ---------------------------------------------------------------------
+//  Acceso a datos: Supabase real o datos de ejemplo (vista previa)
+// ---------------------------------------------------------------------
+function supabaseApi() {
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const must = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
+  return {
+    async session() { const { data } = await sb.auth.getSession(); return data.session ? { email: data.session.user.email } : null; },
+    async signIn(email, password) {
+      must(await sb.auth.signInWithPassword({ email, password }));
+      const isAdmin = must(await sb.rpc('is_admin'));
+      if (!isAdmin) { await sb.auth.signOut(); throw new Error('Esta cuenta no es administradora. Agrégala a la tabla admins (ver guía).'); }
+      return { email };
+    },
+    async signOut() { await sb.auth.signOut(); },
+    async stats() { return must(await sb.rpc('admin_stats')); },
+    async listCodes({ q, status, page }) {
+      const now = new Date().toISOString();
+      let query = sb.from('access_codes').select('*, code_devices(count)', { count: 'exact' })
+        .order('created_at', { ascending: false }).range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
+      if (status === 'unused') query = query.eq('disabled', false).is('activated_at', null);
+      if (status === 'active') query = query.eq('disabled', false).gt('expires_at', now);
+      if (status === 'expired') query = query.eq('disabled', false).lte('expires_at', now);
+      if (status === 'disabled') query = query.eq('disabled', true);
+      const term = (q || '').trim();
+      if (term) {
+        const code = normCode(term), note = term.replace(/[,()%*\\]/g, ' ');
+        query = code.length >= 3 ? query.or(`code.ilike.%${code}%,note.ilike.%${note}%`) : query.ilike('note', `%${note}%`);
+      }
+      const { data, error, count } = await query;
+      if (error) throw new Error(error.message);
+      return { rows: data.map(r => ({ ...r, devices: r.code_devices?.[0]?.count ?? 0 })), total: count ?? 0 };
+    },
+    async generate(n, hours, maxDevices, note) { return must(await sb.rpc('admin_generate_codes', { p_count: n, p_duration_hours: hours, p_max_devices: maxDevices, p_note: note })); },
+    async devices(codeId) { return must(await sb.from('code_devices').select('*').eq('code_id', codeId).order('first_seen')); },
+    async freeDevice(codeId, deviceId) { must(await sb.from('code_devices').delete().eq('code_id', codeId).eq('device_id', deviceId)); },
+    async extend(id, hours) { return must(await sb.rpc('admin_extend_code', { p_id: id, p_hours: hours })); },
+    async setDisabled(id, disabled) { must(await sb.from('access_codes').update({ disabled }).eq('id', id)); },
+    async remove(id) { must(await sb.from('access_codes').delete().eq('id', id)); },
+    async listDemos({ page }) {
+      const { data, error, count } = await sb.from('demo_devices').select('*', { count: 'exact' })
+        .order('started_at', { ascending: false }).range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
+      if (error) throw new Error(error.message); return { rows: data, total: count ?? 0 };
+    },
+    async resetDemo(deviceId) { must(await sb.from('demo_devices').delete().eq('device_id', deviceId)); },
+    async getSettings() { return must(await sb.from('app_settings').select('*').eq('id', 1).single()); },
+    async saveSettings(s) { must(await sb.from('app_settings').update({ ...s, updated_at: new Date().toISOString() }).eq('id', 1)); },
+  };
+}
+
+function previewApi() {
+  const A = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const rnd = () => Array.from({ length: 12 }, () => A[Math.floor(Math.random() * 32)]).join('');
+  const H = 3.6e6, now = Date.now();
+  const names = ['Galaxy A54', 'Redmi Note 13', 'Moto G84', 'Pixel 8', 'Honor X8', 'Galaxy S23', 'Poco X6'];
+  const notes = ['Donación de Carlos', 'Donación — grupo familia', '', 'Sorteo Discord', 'Donación de Andrea', ''];
+  let codes = [], devs = [], demos = [];
+  const durs = [24, 168, 720, 720, 2160, 8760];
+  for (let i = 0; i < 36; i++) {
+    const dur = durs[i % durs.length], created = now - (i * 9 + 2) * H;
+    const c = { id: crypto.randomUUID?.() ?? String(Math.random()), code: rnd(), duration_hours: dur, max_devices: 2, note: notes[i % notes.length] || null, disabled: i === 7, created_at: new Date(created).toISOString(), activated_at: null, expires_at: null };
+    if (i % 4 !== 0) { const act = created + 3 * H; c.activated_at = new Date(act).toISOString(); c.expires_at = new Date(act + dur * H).toISOString();
+      const nd = 1 + (i % 3 === 0 ? 1 : 0);
+      for (let d = 0; d < nd; d++) devs.push({ code_id: c.id, device_id: 'a' + Math.random().toString(16).slice(2, 14), device_name: names[(i + d) % names.length], first_seen: c.activated_at, last_seen: new Date(now - (i % 5) * H).toISOString() }); }
+    codes.push(c);
+  }
+  for (let i = 0; i < 14; i++) { const st = now - (i * 4 + 1) * H; demos.push({ device_id: 'd' + Math.random().toString(16).slice(2, 14), device_name: names[i % names.length], started_at: new Date(st).toISOString(), expires_at: new Date(st + 6 * H).toISOString(), last_seen: new Date(st + H).toISOString() }); }
+  let settings = { demo_enabled: true, demo_hours: 6, default_max_devices: 2, offline_grace_hours: 72, revalidate_hours: 12, donation_url: 'https://www.buymeacoffee.com/maxrave', welcome_message: 'Versión no oficial de SimpMusic. Las donaciones van directamente a su creador, maxrave-dev.' };
+  const wait = v => new Promise(r => setTimeout(() => r(v), 120));
+  return {
+    async session() { return { email: 'vista-previa@ejemplo.com' }; },
+    async signIn() { return { email: 'vista-previa@ejemplo.com' }; },
+    async signOut() {},
+    async stats() {
+      const by = s => codes.filter(c => statusOf(c) === s).length;
+      return wait({ total: codes.length, unused: by('unused'), active: by('active'), expired: by('expired'), disabled: by('disabled'), devices: devs.length, demos_active: demos.filter(d => new Date(d.expires_at) > Date.now()).length, demos_total: demos.length });
+    },
+    async listCodes({ q, status, page }) {
+      let rows = codes.filter(c => !status || status === 'all' || statusOf(c) === status);
+      const t = (q || '').trim().toLowerCase(), nc = normCode(q);
+      if (t) rows = rows.filter(c => (nc.length >= 3 && c.code.includes(nc)) || (c.note || '').toLowerCase().includes(t));
+      return wait({ rows: rows.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE).map(c => ({ ...c, devices: devs.filter(d => d.code_id === c.id).length })), total: rows.length });
+    },
+    async generate(n, hours, maxDevices, note) {
+      const made = Array.from({ length: n }, () => ({ id: String(Math.random()), code: rnd(), duration_hours: hours, max_devices: maxDevices ?? settings.default_max_devices, note: note || null, disabled: false, created_at: new Date().toISOString(), activated_at: null, expires_at: null }));
+      codes = [...made, ...codes]; return wait(made);
+    },
+    async devices(id) { return wait(devs.filter(d => d.code_id === id)); },
+    async freeDevice(id, dev) { devs = devs.filter(d => !(d.code_id === id && d.device_id === dev)); return wait(); },
+    async extend(id, hours) { const c = codes.find(c => c.id === id);
+      if (!c.activated_at) c.duration_hours += hours; else c.expires_at = new Date(Math.max(new Date(c.expires_at), Date.now()) + hours * H).toISOString(); return wait(c); },
+    async setDisabled(id, v) { codes.find(c => c.id === id).disabled = v; return wait(); },
+    async remove(id) { codes = codes.filter(c => c.id !== id); devs = devs.filter(d => d.code_id !== id); return wait(); },
+    async listDemos({ page }) { return wait({ rows: demos.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE), total: demos.length }); },
+    async resetDemo(dev) { demos = demos.filter(d => d.device_id !== dev); return wait(); },
+    async getSettings() { return wait({ ...settings }); },
+    async saveSettings(s) { settings = { ...settings, ...s }; return wait(); },
+  };
+}
+
+const api = PREVIEW ? previewApi() : supabaseApi();
+
+// ---------------------------------------------------------------------
+//  Estado y vistas
+// ---------------------------------------------------------------------
+const state = { user: null, tab: 'codes', q: '', status: 'all', page: 0, demoPage: 0, preset: 720, generated: [], open: null, confirmDelete: false };
+const PRESETS = [[6, '6 horas'], [24, '1 día'], [168, '7 días'], [720, '30 días'], [2160, '90 días'], [8760, '1 año'], [0, 'Otra']];
+
+function renderLogin(error = '') {
+  $('#app').innerHTML = `
+  <div class="login">
+    <form class="login-card" id="loginForm">
+      <div class="brand"><span class="brand-mark"></span>Panel de Códigos</div>
+      <div><h1 class="section-title">Iniciar sesión</h1><p class="sub">Solo para el administrador.</p></div>
+      <label class="f">Correo<input class="in" id="email" type="email" autocomplete="username" required></label>
+      <label class="f">Contraseña<input class="in" id="password" type="password" autocomplete="current-password" required></label>
+      ${error ? `<div class="err">${esc(error)}</div>` : ''}
+      <button class="btn" id="loginBtn">Entrar</button>
+    </form>
+  </div>`;
+  $('#loginForm').addEventListener('submit', async e => {
+    e.preventDefault(); $('#loginBtn').disabled = true;
+    try { state.user = await api.signIn($('#email').value.trim(), $('#password').value); renderShell(); }
+    catch (err) { renderLogin(err.message === 'Invalid login credentials' ? 'Correo o contraseña incorrectos.' : err.message); }
+  });
+}
+
+function renderShell() {
+  $('#app').innerHTML = `
+  <header class="top"><div class="wrap">
+    <div class="brand"><span class="brand-mark"></span>Panel de Códigos</div>
+    <nav class="tabs" role="tablist">
+      <button class="tab" role="tab" data-tab="codes">Códigos</button>
+      <button class="tab" role="tab" data-tab="demos">Demos</button>
+      <button class="tab" role="tab" data-tab="settings">Ajustes</button>
+    </nav>
+    <div class="who"><span>${esc(state.user.email)}</span><button class="btn ghost sm" id="logout">Salir</button></div>
+  </div></header>
+  ${PREVIEW ? `<div class="banner"><div class="wrap">Vista previa con datos de ejemplo. Para usar tus datos reales, pega la URL y la clave de Supabase al inicio del script de este archivo.</div></div>` : ''}
+  <main class="wrap" id="view"></main>
+  <div id="drawerRoot"></div>`;
+  $('.tabs').addEventListener('click', e => { const t = e.target.closest('[data-tab]'); if (t) { state.tab = t.dataset.tab; renderTab(); } });
+  $('#logout').addEventListener('click', async () => { await api.signOut(); state.user = null; renderLogin(); });
+  renderTab();
+}
+
+function renderTab() {
+  document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', t.dataset.tab === state.tab));
+  if (state.tab === 'codes') renderCodes();
+  if (state.tab === 'demos') renderDemos();
+  if (state.tab === 'settings') renderSettings();
+}
+
+async function renderStats() {
+  const el = $('#stats'); if (!el) return;
+  try {
+    const s = await api.stats();
+    const items = [['unused', 'Sin usar', 'var(--idle)'], ['active', 'Activos', 'var(--ok)'], ['expired', 'Vencidos', 'var(--warn)'], ['disabled', 'Deshabilitados', 'var(--bad)'], ['demos_active', 'Demos activas', 'var(--accent)']];
+    el.innerHTML = items.map(([k, l, c]) => `<div class="stat"><span><i class="dot" style="background:${c}"></i>${l}</span><b>${(s[k] ?? 0).toLocaleString('es-EC')}</b></div>`).join('');
+  } catch (e) { el.innerHTML = `<div class="err">No se pudieron cargar las cifras: ${esc(e.message)}</div>`; }
+}
+
+function renderCodes() {
+  $('#view').innerHTML = `
+  <div class="stats" id="stats"></div>
+
+  <section class="gen" aria-labelledby="genTitle">
+    <form class="gen-form" id="genForm">
+      <div><h2 class="section-title" id="genTitle">Generar códigos</h2>
+      <p class="sub">La duración empieza a contar cuando el usuario activa el código por primera vez.</p></div>
+      <div class="f" style="display:grid;gap:6px"><span style="font-size:12.5px;font-weight:600;color:var(--muted)">Duración</span>
+        <div class="presets" id="presets">${PRESETS.map(([h, l]) => `<button type="button" class="chip" data-h="${h}" aria-pressed="${state.preset === h}">${l}</button>`).join('')}</div>
+        <div class="custom" id="customBox" ${state.preset === 0 ? '' : 'hidden'}>
+          <input class="in" id="customN" type="number" min="1" value="2" aria-label="Cantidad de tiempo">
+          <select class="in" id="customU" aria-label="Unidad"><option value="1">horas</option><option value="24" selected>días</option><option value="720">meses (30 días)</option></select>
+        </div>
+      </div>
+      <div class="fields">
+        <label class="f">Cantidad de códigos<input class="in" id="genCount" type="number" min="1" max="1000" value="1"></label>
+        <label class="f">Dispositivos por código<input class="in" id="genMax" type="number" min="1" max="10" value="2"></label>
+      </div>
+      <label class="f">Nota (opcional)<input class="in" id="genNote" maxlength="200" placeholder="Ej: Donación de María, 5 USD"></label>
+      <div class="row"><button class="btn" id="genBtn">Generar</button><span class="sub" id="genSummary"></span></div>
+    </form>
+    <div class="stub">
+      <div class="stub-head"><h3 class="section-title" style="font-size:15px">Recién generados</h3>
+        <button class="btn ghost sm" id="copyAll" ${state.generated.length ? '' : 'hidden'}>Copiar todos</button></div>
+      <div class="cards" id="genCards">${genCardsHtml()}</div>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="Lista de códigos">
+    <div class="toolbar">
+      <input class="in" id="search" type="search" placeholder="Buscar código o nota" value="${esc(state.q)}">
+      <div class="presets" id="statusChips">${[['all', 'Todos'], ...Object.entries(STATUS)].map(([k, l]) => `<button class="chip" data-s="${k}" aria-pressed="${state.status === k}">${l}</button>`).join('')}</div>
+    </div>
+    <div class="scroll"><table>
+      <thead><tr><th>Código</th><th>Estado</th><th>Duración</th><th>Activado</th><th>Vence</th><th>Dispositivos</th><th>Nota</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="7" class="sub">Cargando…</td></tr></tbody>
+    </table></div>
+    <div class="pager" id="pager"></div>
+  </section>`;
+
+  renderStats();
+  loadRows();
+  updateSummary();
+
+  $('#presets').addEventListener('click', e => {
+    const b = e.target.closest('[data-h]'); if (!b) return;
+    state.preset = +b.dataset.h;
+    document.querySelectorAll('#presets .chip').forEach(c => c.setAttribute('aria-pressed', c === b));
+    $('#customBox').hidden = state.preset !== 0; updateSummary();
+  });
+  ['#customN', '#customU', '#genCount'].forEach(s => $(s).addEventListener('input', updateSummary));
+  $('#genForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const hours = currentHours(), n = Math.min(1000, Math.max(1, +$('#genCount').value || 1));
+    if (!hours) return toast('Indica una duración válida');
+    $('#genBtn').disabled = true;
+    try {
+      const made = await api.generate(n, hours, Math.min(10, Math.max(1, +$('#genMax').value || 2)), $('#genNote').value.trim());
+      state.generated = made; $('#genCards').innerHTML = genCardsHtml(); $('#copyAll').hidden = false;
+      toast(`${made.length} código${made.length > 1 ? 's' : ''} generado${made.length > 1 ? 's' : ''}`);
+      state.page = 0; loadRows(); renderStats();
+    } catch (err) { toast(err.message); }
+    $('#genBtn').disabled = false;
+  });
+  $('#genCards').addEventListener('click', e => { const b = e.target.closest('[data-copy]'); if (b) copyText(b.dataset.copy); });
+  $('#copyAll').addEventListener('click', () => copyText(state.generated.map(c => fmtCode(c.code)).join('\n')));
+  let t; $('#search').addEventListener('input', e => { clearTimeout(t); t = setTimeout(() => { state.q = e.target.value; state.page = 0; loadRows(); }, 300); });
+  $('#statusChips').addEventListener('click', e => {
+    const b = e.target.closest('[data-s]'); if (!b) return; state.status = b.dataset.s; state.page = 0;
+    document.querySelectorAll('#statusChips .chip').forEach(c => c.setAttribute('aria-pressed', c === b)); loadRows();
+  });
+}
+
+function currentHours() {
+  if (state.preset) return state.preset;
+  const n = +$('#customN')?.value, u = +$('#customU')?.value;
+  return n > 0 ? Math.round(n * u) : 0;
+}
+function updateSummary() {
+  const h = currentHours(), n = +$('#genCount').value || 1;
+  $('#genSummary').textContent = h ? `${n} × ${fmtHours(h)} de acceso` : '';
+}
+function genCardsHtml() {
+  if (!state.generated.length) return `<div class="empty">Los códigos que generes aparecerán aquí, listos para copiar y enviar.</div>`;
+  return state.generated.map(c => `<div class="gcard"><div><div class="gcode">${fmtCode(c.code)}</div><div class="gmeta">${fmtHours(c.duration_hours)} · ${c.max_devices} disp.${c.note ? ' · ' + esc(c.note) : ''}</div></div>
+    <button class="btn ghost sm" data-copy="${fmtCode(c.code)}">Copiar</button></div>`).join('');
+}
+
+async function loadRows() {
+  const tb = $('#rows'); if (!tb) return;
+  try {
+    const { rows, total } = await api.listCodes({ q: state.q, status: state.status, page: state.page });
+    tb.innerHTML = rows.length ? rows.map(c => {
+      const s = statusOf(c);
+      return `<tr data-id="${c.id}" tabindex="0">
+        <td class="mono" style="font-weight:600;letter-spacing:.05em">${fmtCode(c.code)}</td>
+        <td>${pill(s)}</td>
+        <td>${fmtHours(c.duration_hours)}</td>
+        <td>${fmtDate(c.activated_at)}</td>
+        <td>${c.expires_at ? `${fmtDate(c.expires_at)}<br><span class="sub">${s === 'active' ? remaining(c.expires_at) : ''}</span>` : '<span class="sub">al activarse</span>'}</td>
+        <td><span class="slots">${Array.from({ length: c.max_devices }, (_, i) => `<i class="${i < c.devices ? 'on' : ''}"></i>`).join('')}</span>${c.devices}/${c.max_devices}</td>
+        <td class="note">${esc(c.note || '')}</td></tr>`;
+    }).join('') : `<tr><td colspan="7"><div class="empty">No hay códigos con este filtro.</div></td></tr>`;
+    state.rows = rows;
+    const from = total ? state.page * PAGE_SIZE + 1 : 0, to = Math.min(total, (state.page + 1) * PAGE_SIZE);
+    $('#pager').innerHTML = `<span>${from}–${to} de ${total.toLocaleString('es-EC')}</span>
+      <div class="row"><button class="btn ghost sm" id="prev" ${state.page ? '' : 'disabled'}>Anterior</button><button class="btn ghost sm" id="next" ${to < total ? '' : 'disabled'}>Siguiente</button></div>`;
+    $('#prev').onclick = () => { state.page--; loadRows(); };
+    $('#next').onclick = () => { state.page++; loadRows(); };
+    tb.onclick = e => { const tr = e.target.closest('tr[data-id]'); if (tr) openDrawer(state.rows.find(r => r.id === tr.dataset.id)); };
+    tb.onkeydown = e => { if (e.key === 'Enter') { const tr = e.target.closest('tr[data-id]'); if (tr) openDrawer(state.rows.find(r => r.id === tr.dataset.id)); } };
+  } catch (e) { tb.innerHTML = `<tr><td colspan="7" class="err">No se pudo cargar la lista: ${esc(e.message)}</td></tr>`; }
+}
+
+async function openDrawer(code) {
+  state.open = code; state.confirmDelete = false;
+  const devs = await api.devices(code.id).catch(() => []);
+  const s = statusOf(code);
+  $('#drawerRoot').innerHTML = `
+  <div class="scrim" id="scrim"></div>
+  <aside class="drawer" role="dialog" aria-label="Detalle del código">
+    <div class="drawer-head">
+      <div style="display:grid;gap:6px"><div class="gcode" style="font-size:19px">${fmtCode(code.code)}</div><div>${pill(s)}</div></div>
+      <button class="x" id="closeD" aria-label="Cerrar">×</button>
+    </div>
+    <div class="drawer-body">
+      <div class="row"><button class="btn ghost sm" data-copy="${fmtCode(code.code)}">Copiar código</button></div>
+      <dl class="kv">
+        <dt>Duración</dt><dd>${fmtHours(code.duration_hours)}</dd>
+        <dt>Creado</dt><dd>${fmtDate(code.created_at)}</dd>
+        <dt>Activado</dt><dd>${fmtDate(code.activated_at)}</dd>
+        <dt>Vence</dt><dd>${code.expires_at ? fmtDate(code.expires_at) : 'al activarse'}</dd>
+        ${s === 'active' ? `<dt>Tiempo</dt><dd>${remaining(code.expires_at)}</dd>` : ''}
+        <dt>Nota</dt><dd style="white-space:normal">${esc(code.note || '—')}</dd>
+      </dl>
+      <div style="display:grid;gap:8px">
+        <h3 class="section-title" style="font-size:14px">Dispositivos (${devs.length}/${code.max_devices})</h3>
+        ${devs.length ? devs.map(d => `<div class="dev"><div><b>${esc(d.device_name || 'Dispositivo')}</b><small>Último uso: ${fmtDate(d.last_seen)}</small></div>
+          <button class="btn ghost sm" data-free="${esc(d.device_id)}">Liberar</button></div>`).join('') : `<div class="empty">Aún no se usa en ningún dispositivo.</div>`}
+        <p class="help">Liberar un dispositivo deja ese espacio libre, por ejemplo si el usuario cambió de celular.</p>
+      </div>
+      <div style="display:grid;gap:8px">
+        <h3 class="section-title" style="font-size:14px">Extender</h3>
+        <div class="row">
+          <select class="in" id="extH" style="flex:1"><option value="24">+1 día</option><option value="168">+7 días</option><option value="720" selected>+30 días</option><option value="8760">+1 año</option></select>
+          <button class="btn" id="extBtn">Extender</button>
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn ghost" id="toggleBtn">${code.disabled ? 'Habilitar' : 'Deshabilitar'}</button>
+        <button class="btn ghost" id="delBtn" style="color:var(--bad)">Eliminar</button>
+      </div>
+      <div id="confirmBox"></div>
+    </div>
+  </aside>`;
+  const close = () => { $('#drawerRoot').innerHTML = ''; state.open = null; };
+  $('#scrim').onclick = close; $('#closeD').onclick = close;
+  document.onkeydown = e => { if (e.key === 'Escape' && state.open) close(); };
+  const refresh = async (updated) => { loadRows(); renderStats(); if (updated) openDrawer(updated); else close(); };
+  $('.drawer').addEventListener('click', async e => {
+    const cp = e.target.closest('[data-copy]'); if (cp) return copyText(cp.dataset.copy);
+    const fr = e.target.closest('[data-free]');
+    if (fr) { fr.disabled = true; await api.freeDevice(code.id, fr.dataset.free).catch(err => toast(err.message)); toast('Dispositivo liberado'); refresh(code); }
+  });
+  $('#extBtn').onclick = async () => {
+    try { const u = await api.extend(code.id, +$('#extH').value); toast('Código extendido'); refresh({ ...code, ...u }); } catch (err) { toast(err.message); }
+  };
+  $('#toggleBtn').onclick = async () => {
+    try { await api.setDisabled(code.id, !code.disabled); toast(code.disabled ? 'Código habilitado' : 'Código deshabilitado'); refresh({ ...code, disabled: !code.disabled }); } catch (err) { toast(err.message); }
+  };
+  $('#delBtn').onclick = () => {
+    $('#confirmBox').innerHTML = `<div class="confirm"><span>¿Eliminar ${fmtCode(code.code)}? Quien lo use perderá el acceso en su próxima validación. No se puede deshacer.</span>
+      <div class="row"><button class="btn danger sm" id="delYes">Sí, eliminar</button><button class="btn ghost sm" id="delNo">Cancelar</button></div></div>`;
+    $('#delNo').onclick = () => $('#confirmBox').innerHTML = '';
+    $('#delYes').onclick = async () => { try { await api.remove(code.id); toast('Código eliminado'); refresh(null); } catch (err) { toast(err.message); } };
+  };
+}
+
+async function renderDemos() {
+  $('#view').innerHTML = `
+  <div class="stats" id="stats"></div>
+  <section class="panel">
+    <div class="toolbar" style="justify-content:space-between"><div><h2 class="section-title">Demos</h2>
+      <p class="sub">Cada dispositivo puede probar la app una sola vez. "Permitir otra demo" le da una nueva oportunidad.</p></div></div>
+    <div class="scroll"><table><thead><tr><th>Dispositivo</th><th>Estado</th><th>Inicio</th><th>Termina</th><th></th></tr></thead><tbody id="demoRows"><tr><td colspan="5" class="sub">Cargando…</td></tr></tbody></table></div>
+    <div class="pager" id="demoPager"></div>
+  </section>`;
+  renderStats();
+  const load = async () => {
+    try {
+      const { rows, total } = await api.listDemos({ page: state.demoPage });
+      $('#demoRows').innerHTML = rows.length ? rows.map(d => {
+        const on = new Date(d.expires_at) > Date.now();
+        return `<tr style="cursor:default"><td><b>${esc(d.device_name || 'Dispositivo')}</b><br><span class="sub mono" style="font-size:12px">${esc(d.device_id.slice(0, 12))}</span></td>
+          <td>${on ? `<span class="pill st-active">En curso</span><br><span class="sub">${remaining(d.expires_at)}</span>` : '<span class="pill st-expired">Terminada</span>'}</td>
+          <td>${fmtDate(d.started_at)}</td><td>${fmtDate(d.expires_at)}</td>
+          <td><button class="btn ghost sm" data-reset="${esc(d.device_id)}">Permitir otra demo</button></td></tr>`;
+      }).join('') : `<tr><td colspan="5"><div class="empty">Todavía nadie ha probado la demo.</div></td></tr>`;
+      const from = total ? state.demoPage * PAGE_SIZE + 1 : 0, to = Math.min(total, (state.demoPage + 1) * PAGE_SIZE);
+      $('#demoPager').innerHTML = `<span>${from}–${to} de ${total}</span><div class="row"><button class="btn ghost sm" id="dprev" ${state.demoPage ? '' : 'disabled'}>Anterior</button><button class="btn ghost sm" id="dnext" ${to < total ? '' : 'disabled'}>Siguiente</button></div>`;
+      $('#dprev').onclick = () => { state.demoPage--; load(); }; $('#dnext').onclick = () => { state.demoPage++; load(); };
+    } catch (e) { $('#demoRows').innerHTML = `<tr><td colspan="5" class="err">${esc(e.message)}</td></tr>`; }
+  };
+  $('#demoRows').onclick = async e => {
+    const b = e.target.closest('[data-reset]'); if (!b) return;
+    b.disabled = true; try { await api.resetDemo(b.dataset.reset); toast('Ese dispositivo puede volver a probar la demo'); load(); renderStats(); } catch (err) { toast(err.message); }
+  };
+  load();
+}
+
+async function renderSettings() {
+  $('#view').innerHTML = `<div class="settings"><p class="sub">Cargando ajustes…</p></div>`;
+  let s; try { s = await api.getSettings(); } catch (e) { $('#view').innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
+  $('#view').innerHTML = `
+  <form class="settings" id="setForm">
+    <div><h2 class="section-title">Ajustes</h2><p class="sub">Los cambios llegan a la app en su siguiente validación.</p></div>
+    <label class="switch"><input type="checkbox" id="sDemo" ${s.demo_enabled ? 'checked' : ''}> Permitir demos <span class="help">Botón "Probar gratis" en la pantalla de acceso.</span></label>
+    <div class="fields">
+      <label class="f">Duración de la demo (horas)<input class="in" id="sDemoH" type="number" min="1" max="720" value="${s.demo_hours}"></label>
+      <label class="f">Dispositivos por código (por defecto)<input class="in" id="sMax" type="number" min="1" max="10" value="${s.default_max_devices}"></label>
+      <label class="f">Revalidar cada (horas)<input class="in" id="sReval" type="number" min="1" max="168" value="${s.revalidate_hours}"><span class="help">Cada cuánto la app confirma con el servidor. Menos horas = bloqueos más rápidos, más consultas.</span></label>
+      <label class="f">Uso sin internet (horas)<input class="in" id="sGrace" type="number" min="0" max="720" value="${s.offline_grace_hours}"><span class="help">Tiempo máximo sin validar antes de pedir conexión.</span></label>
+    </div>
+    <label class="f">Enlace del botón "Donar"<input class="in" id="sUrl" type="url" value="${esc(s.donation_url)}"></label>
+    <label class="f">Mensaje en la pantalla de acceso<textarea class="in" id="sMsg" rows="3" maxlength="400">${esc(s.welcome_message)}</textarea></label>
+    <div class="row"><button class="btn" id="sSave">Guardar ajustes</button></div>
+  </form>`;
+  $('#setForm').addEventListener('submit', async e => {
+    e.preventDefault(); $('#sSave').disabled = true;
+    const clamp = (v, a, b) => Math.min(b, Math.max(a, Math.round(+v || a)));
+    try {
+      await api.saveSettings({ demo_enabled: $('#sDemo').checked, demo_hours: clamp($('#sDemoH').value, 1, 720), default_max_devices: clamp($('#sMax').value, 1, 10),
+        revalidate_hours: clamp($('#sReval').value, 1, 168), offline_grace_hours: clamp($('#sGrace').value, 0, 720), donation_url: $('#sUrl').value.trim(), welcome_message: $('#sMsg').value.trim() });
+      toast('Ajustes guardados');
+    } catch (err) { toast(err.message); }
+    $('#sSave').disabled = false;
+  });
+}
+
+// Arranque
+(async () => {
+  try { state.user = await api.session(); } catch { state.user = null; }
+  state.user ? renderShell() : renderLogin();
+})();
+</script>
