@@ -18,7 +18,9 @@ import coil3.request.crossfade
 import com.maxrave.common.AppIdentity
 import com.maxrave.data.di.loader.loadAllModules
 import com.maxrave.domain.manager.DataStoreManager
+import com.maxrave.domain.mediaservice.handler.MediaPlayerHandler
 import com.maxrave.logger.Logger
+import com.maxrave.simpmusic.access.AccessPlaybackGuard
 import com.maxrave.simpmusic.di.viewModelModule
 import com.maxrave.simpmusic.service.backup.AutoBackupScheduler
 import kotlinx.coroutines.CoroutineScope
@@ -31,6 +33,7 @@ import okio.FileSystem
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import org.koin.core.component.KoinComponent
+import org.koin.core.component.get
 import org.koin.core.component.inject
 import org.koin.core.context.loadKoinModules
 import org.koin.core.context.startKoin
@@ -64,6 +67,8 @@ class SimpMusicApplication :
             )
             loadKoinModules(viewModelModule)
         }
+        // Detiene la música si el acceso vence, aunque la app esté cerrada (la notificación sigue viva).
+        AccessPlaybackGuard.start(get<MediaPlayerHandler>(), dataStoreManager)
         // provide custom configuration
         val workConfig =
             Configuration

@@ -78,7 +78,7 @@ fun AccessGate(
     content: @Composable () -> Unit,
 ) {
     val store: DataStoreManager = koinInject()
-    val controller = remember { AccessController(store) }
+    val controller = remember { AccessRuntime.controller(store) }
     val state by controller.state.collectAsState()
     var wasUnlocked by remember { mutableStateOf(false) }
 
