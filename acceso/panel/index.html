@@ -154,6 +154,23 @@ td.note { max-width: 220px; overflow: hidden; text-overflow: ellipsis; color: va
 
 .toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 9px; font-weight: 600; font-size: 14px; z-index: 40; max-width: calc(100% - 32px); }
 @media (prefers-reduced-motion: no-preference) { .drawer { animation: slide .18s ease-out; } @keyframes slide { from { transform: translateX(24px); opacity: .6; } } }
+
+/* Agregado: servicios, revendedores y créditos */
+.st-voided { background: var(--surface-2); color: var(--muted); text-decoration: line-through; }
+.credit-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 13px; }
+.svc-tag { display: inline-block; padding: 1px 8px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line); font-size: 12.5px; font-weight: 600; }
+.cost { font-weight: 700; }
+.cost.bad { color: var(--bad); }
+.grid2 { display: grid; gap: 22px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 900px) { .grid2 { grid-template-columns: minmax(0, 360px) minmax(0, 1fr); } }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px; display: grid; gap: 14px; align-content: start; }
+.big { font-family: var(--f-display); font-weight: 500; font-size: 40px; line-height: 1; font-variant-numeric: tabular-nums; }
+.ledger { display: grid; gap: 0; }
+.ledger div { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.ledger div:first-child { border-top: 0; }
+.plus { color: var(--ok); font-weight: 700; } .minus { color: var(--bad); font-weight: 700; }
+.note-box { background: var(--surface-2); border-radius: 9px; padding: 12px; font-size: 13.5px; color: var(--muted); }
+select.in { appearance: auto; }
 </style>
 
 <div id="app"></div>
@@ -161,15 +178,13 @@ td.note { max-width: 220px; overflow: hidden; text-overflow: ellipsis; color: va
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
 <script>
 // =====================================================================
-//  CONFIGURACIÓN: pega aquí los datos de tu proyecto Supabase
-//  (Supabase > Project Settings > API)
+//  CONFIGURACIÓN (Supabase > Project Settings > API)
 // =====================================================================
-const SUPABASE_URL = 'PEGA_AQUI_TU_PROJECT_URL';       // ej: https://abcd1234.supabase.co
-const SUPABASE_ANON_KEY = 'PEGA_AQUI_TU_ANON_PUBLIC_KEY';
+const SUPABASE_URL = 'https://dcgaxwkxqbyvuwgsionf.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRjZ2F4d2t4cWJ5dnV3Z3Npb25mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEyMzIxODUsImV4cCI6MjEwNjgwODE4NX0.Bql5bv4ZIPASPw558vnkTz9idcYmqqqWleMYrzcCXsc';
 // =====================================================================
 
-const PREVIEW = !/^https:\/\//.test(SUPABASE_URL);
-if (!PREVIEW && typeof window.supabase === 'undefined') {
+if (typeof window.supabase === 'undefined') {
   document.getElementById('app').innerHTML = '<p style="padding:24px">No se pudo cargar la librería de Supabase. Revisa tu conexión a internet y recarga la página.</p>';
   throw new Error('supabase-js no cargó');
 }
@@ -180,150 +195,140 @@ const fmtCode = c => (c || '').match(/.{1,4}/g)?.join('-') ?? '';
 const normCode = s => (s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const dtf = new Intl.DateTimeFormat('es-EC', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const fmtDate = d => d ? dtf.format(new Date(d)) : '—';
+const plural = (n, a, b) => `${n} ${n === 1 ? a : b}`;
 function fmtHours(h) {
-  if (h % 8760 === 0) return `${h / 8760} año${h / 8760 > 1 ? 's' : ''}`;
-  if (h % 24 === 0) return `${h / 24} día${h / 24 > 1 ? 's' : ''}`;
-  return `${h} hora${h > 1 ? 's' : ''}`;
+  if (h % 720 === 0) return plural(h / 720, 'mes', 'meses');
+  if (h % 24 === 0) return plural(h / 24, 'día', 'días');
+  return plural(h, 'hora', 'horas');
 }
+// Igual que credit_cost() en el servidor
+const creditCost = h => h <= 168 ? 0 : Math.max(1, Math.round(h / 720));
 function remaining(exp) {
   const ms = new Date(exp) - Date.now();
   if (ms <= 0) return 'vencido';
   const h = Math.floor(ms / 3.6e6), d = Math.floor(h / 24);
   if (d >= 1) return `quedan ${d} d ${h % 24} h`;
-  const m = Math.floor(ms / 6e4) % 60;
-  return `quedan ${h} h ${m} min`;
+  return `quedan ${h} h ${Math.floor(ms / 6e4) % 60} min`;
 }
 function statusOf(c) {
+  if (c.voided_at) return 'voided';
   if (c.disabled) return 'disabled';
   if (!c.activated_at) return 'unused';
   return new Date(c.expires_at) > Date.now() ? 'active' : 'expired';
 }
-const STATUS = { unused: 'Sin usar', active: 'Activo', expired: 'Vencido', disabled: 'Deshabilitado' };
+const STATUS = { unused: 'Sin usar', active: 'Activo', expired: 'Vencido', disabled: 'Deshabilitado', voided: 'Anulado' };
 const pill = s => `<span class="pill st-${s}">${STATUS[s]}</span>`;
 function toast(msg) {
   const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.append(t);
-  setTimeout(() => t.remove(), 2600);
+  setTimeout(() => t.remove(), 3200);
 }
 async function copyText(text) {
   try { await navigator.clipboard.writeText(text); toast('Copiado'); }
   catch { const ta = document.createElement('textarea'); ta.value = text; document.body.append(ta); ta.select();
     try { document.execCommand('copy'); toast('Copiado'); } catch { toast('Selecciona el texto y cópialo manualmente'); } ta.remove(); }
 }
+const slug = s => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 40);
 
 // ---------------------------------------------------------------------
-//  Acceso a datos: Supabase real o datos de ejemplo (vista previa)
+//  Acceso a datos
 // ---------------------------------------------------------------------
-function supabaseApi() {
-  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const must = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
-  return {
-    async session() { const { data } = await sb.auth.getSession(); return data.session ? { email: data.session.user.email } : null; },
-    async signIn(email, password) {
-      must(await sb.auth.signInWithPassword({ email, password }));
-      const isAdmin = must(await sb.rpc('is_admin'));
-      if (!isAdmin) { await sb.auth.signOut(); throw new Error('Esta cuenta no es administradora. Agrégala a la tabla admins (ver guía).'); }
-      return { email };
-    },
-    async signOut() { await sb.auth.signOut(); },
-    async stats() { return must(await sb.rpc('admin_stats')); },
-    async listCodes({ q, status, page }) {
-      const now = new Date().toISOString();
-      let query = sb.from('access_codes').select('*, code_devices(count)', { count: 'exact' })
-        .order('created_at', { ascending: false }).range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
-      if (status === 'unused') query = query.eq('disabled', false).is('activated_at', null);
-      if (status === 'active') query = query.eq('disabled', false).gt('expires_at', now);
-      if (status === 'expired') query = query.eq('disabled', false).lte('expires_at', now);
-      if (status === 'disabled') query = query.eq('disabled', true);
-      const term = (q || '').trim();
-      if (term) {
-        const code = normCode(term), note = term.replace(/[,()%*\\]/g, ' ');
-        query = code.length >= 3 ? query.or(`code.ilike.%${code}%,note.ilike.%${note}%`) : query.ilike('note', `%${note}%`);
-      }
-      const { data, error, count } = await query;
-      if (error) throw new Error(error.message);
-      return { rows: data.map(r => ({ ...r, devices: r.code_devices?.[0]?.count ?? 0 })), total: count ?? 0 };
-    },
-    async generate(n, hours, maxDevices, note) { return must(await sb.rpc('admin_generate_codes', { p_count: n, p_duration_hours: hours, p_max_devices: maxDevices, p_note: note })); },
-    async devices(codeId) { return must(await sb.from('code_devices').select('*').eq('code_id', codeId).order('first_seen')); },
-    async freeDevice(codeId, deviceId) { must(await sb.from('code_devices').delete().eq('code_id', codeId).eq('device_id', deviceId)); },
-    async extend(id, hours) { return must(await sb.rpc('admin_extend_code', { p_id: id, p_hours: hours })); },
-    async setDisabled(id, disabled) { must(await sb.from('access_codes').update({ disabled }).eq('id', id)); },
-    async remove(id) { must(await sb.from('access_codes').delete().eq('id', id)); },
-    async listDemos({ page }) {
-      const { data, error, count } = await sb.from('demo_devices').select('*', { count: 'exact' })
-        .order('started_at', { ascending: false }).range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
-      if (error) throw new Error(error.message); return { rows: data, total: count ?? 0 };
-    },
-    async resetDemo(deviceId) { must(await sb.from('demo_devices').delete().eq('device_id', deviceId)); },
-    async getSettings() { return must(await sb.from('app_settings').select('*').eq('id', 1).single()); },
-    async saveSettings(s) { must(await sb.from('app_settings').update({ ...s, updated_at: new Date().toISOString() }).eq('id', 1)); },
-  };
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const must = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
+const api = {
+  async session() { const { data } = await sb.auth.getSession(); return data.session ? data.session.user.email : null; },
+  async profile() { return must(await sb.rpc('my_profile')); },
+  async signIn(email, password) { must(await sb.auth.signInWithPassword({ email, password })); },
+  async signOut() { await sb.auth.signOut(); },
+  async stats(service) { return must(await sb.rpc('panel_stats', { p_service: service || null })); },
+  async services() { return must(await sb.from('services').select('*').order('created_at')); },
+  async addService(id, name) { must(await sb.from('services').insert({ id, name })); },
+  async updateService(id, patch) { must(await sb.from('services').update(patch).eq('id', id)); },
+  async listCodes({ q, status, service, page }) {
+    const now = new Date().toISOString();
+    let query = sb.from('access_codes').select('*, code_devices(count)', { count: 'exact' })
+      .order('created_at', { ascending: false }).range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
+    if (service) query = query.eq('service_id', service);
+    if (status === 'unused') query = query.eq('disabled', false).is('activated_at', null);
+    if (status === 'active') query = query.eq('disabled', false).gt('expires_at', now);
+    if (status === 'expired') query = query.eq('disabled', false).lte('expires_at', now);
+    if (status === 'disabled') query = query.eq('disabled', true).is('voided_at', null);
+    if (status === 'voided') query = query.not('voided_at', 'is', null);
+    const term = (q || '').trim();
+    if (term) {
+      const code = normCode(term), note = term.replace(/[,()%*\\]/g, ' ');
+      query = code.length >= 3 ? query.or(`code.ilike.%${code}%,note.ilike.%${note}%`) : query.ilike('note', `%${note}%`);
+    }
+    const { data, error, count } = await query;
+    if (error) throw new Error(error.message);
+    return { rows: data.map(r => ({ ...r, devices: r.code_devices?.[0]?.count ?? 0 })), total: count ?? 0 };
+  },
+  async generate(service, n, hours, maxDevices, note) {
+    return must(await sb.rpc('generate_codes', { p_service: service, p_count: n, p_duration_hours: hours, p_max_devices: maxDevices, p_note: note }));
+  },
+  async devices(codeId) { return must(await sb.from('code_devices').select('*').eq('code_id', codeId).order('first_seen')); },
+  async freeDevice(codeId, deviceId) { must(await sb.from('code_devices').delete().eq('code_id', codeId).eq('device_id', deviceId)); },
+  async extend(id, hours) { return must(await sb.rpc('admin_extend_code', { p_id: id, p_hours: hours })); },
+  async disable(id) { return must(await sb.rpc('disable_code', { p_id: id })); },
+  async enable(id) { must(await sb.rpc('admin_enable_code', { p_id: id })); },
+  async remove(id) { must(await sb.rpc('admin_delete_code', { p_id: id })); },
+  async users() { return must(await sb.rpc('admin_list_users')) || []; },
+  async addCredits(userId, delta, note) { return must(await sb.rpc('admin_add_credits', { p_user: userId, p_delta: delta, p_note: note })); },
+  async ledger(userId) {
+    let q = sb.from('credit_ledger').select('*').order('created_at', { ascending: false }).limit(100);
+    if (userId) q = q.eq('user_id', userId);
+    return must(await q);
+  },
+  async usersFn(body) {
+    const { data, error } = await sb.functions.invoke('panel-users', { body });
+    if (error) {
+      let msg = error.message;
+      try { const j = await error.context.json(); if (j?.error) msg = j.error; } catch {}
+      throw new Error(msg);
+    }
+    if (data?.error) throw new Error(data.error);
+    return data;
+  },
+  async listDemos({ page }) {
+    const { data, error, count } = await sb.from('demo_devices').select('*', { count: 'exact' })
+      .order('started_at', { ascending: false }).range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
+    if (error) throw new Error(error.message); return { rows: data, total: count ?? 0 };
+  },
+  async resetDemo(deviceId) { must(await sb.from('demo_devices').delete().eq('device_id', deviceId)); },
+  async getSettings() { return must(await sb.from('app_settings').select('*').eq('id', 1).single()); },
+  async saveSettings(s) { must(await sb.from('app_settings').update({ ...s, updated_at: new Date().toISOString() }).eq('id', 1)); },
+};
+
+// ---------------------------------------------------------------------
+//  Estado
+// ---------------------------------------------------------------------
+const state = { user: null, tab: 'codes', q: '', status: 'all', service: '', page: 0, demoPage: 0,
+  preset: 720, genService: '', generated: [], services: [], userNames: {}, open: null };
+const isAdmin = () => state.user?.role === 'admin';
+const PRESETS = [[6, '6 horas'], [24, '1 día'], [168, '7 días'], [720, '1 mes'], [1440, '2 meses'], [2160, '3 meses'], [4320, '6 meses'], [8640, '12 meses'], [0, 'Otra']];
+const svcName = id => state.services.find(s => s.id === id)?.name ?? id;
+
+async function loadProfile() {
+  const email = await api.session();
+  if (!email) return null;
+  const p = await api.profile();
+  if (!p?.role) throw new Error('Esta cuenta no tiene acceso al panel.');
+  if (p.role === 'reseller' && !p.active) throw new Error('Tu cuenta está bloqueada. Habla con el administrador.');
+  return { email, ...p };
+}
+async function refreshCredits() {
+  if (isAdmin()) return;
+  try { const p = await api.profile(); state.user.credits = p.credits; const el = $('#myCredits'); if (el) el.textContent = plural(p.credits, 'crédito', 'créditos'); } catch {}
 }
 
-function previewApi() {
-  const A = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
-  const rnd = () => Array.from({ length: 12 }, () => A[Math.floor(Math.random() * 32)]).join('');
-  const H = 3.6e6, now = Date.now();
-  const names = ['Galaxy A54', 'Redmi Note 13', 'Moto G84', 'Pixel 8', 'Honor X8', 'Galaxy S23', 'Poco X6'];
-  const notes = ['Donación de Carlos', 'Donación — grupo familia', '', 'Sorteo Discord', 'Donación de Andrea', ''];
-  let codes = [], devs = [], demos = [];
-  const durs = [24, 168, 720, 720, 2160, 8760];
-  for (let i = 0; i < 36; i++) {
-    const dur = durs[i % durs.length], created = now - (i * 9 + 2) * H;
-    const c = { id: crypto.randomUUID?.() ?? String(Math.random()), code: rnd(), duration_hours: dur, max_devices: 2, note: notes[i % notes.length] || null, disabled: i === 7, created_at: new Date(created).toISOString(), activated_at: null, expires_at: null };
-    if (i % 4 !== 0) { const act = created + 3 * H; c.activated_at = new Date(act).toISOString(); c.expires_at = new Date(act + dur * H).toISOString();
-      const nd = 1 + (i % 3 === 0 ? 1 : 0);
-      for (let d = 0; d < nd; d++) devs.push({ code_id: c.id, device_id: 'a' + Math.random().toString(16).slice(2, 14), device_name: names[(i + d) % names.length], first_seen: c.activated_at, last_seen: new Date(now - (i % 5) * H).toISOString() }); }
-    codes.push(c);
-  }
-  for (let i = 0; i < 14; i++) { const st = now - (i * 4 + 1) * H; demos.push({ device_id: 'd' + Math.random().toString(16).slice(2, 14), device_name: names[i % names.length], started_at: new Date(st).toISOString(), expires_at: new Date(st + 6 * H).toISOString(), last_seen: new Date(st + H).toISOString() }); }
-  let settings = { demo_enabled: true, demo_hours: 6, default_max_devices: 2, offline_grace_hours: 72, revalidate_hours: 12, donation_url: 'https://www.buymeacoffee.com/maxrave', welcome_message: 'Versión no oficial de SimpMusic. Las donaciones van directamente a su creador, maxrave-dev.' };
-  const wait = v => new Promise(r => setTimeout(() => r(v), 120));
-  return {
-    async session() { return { email: 'vista-previa@ejemplo.com' }; },
-    async signIn() { return { email: 'vista-previa@ejemplo.com' }; },
-    async signOut() {},
-    async stats() {
-      const by = s => codes.filter(c => statusOf(c) === s).length;
-      return wait({ total: codes.length, unused: by('unused'), active: by('active'), expired: by('expired'), disabled: by('disabled'), devices: devs.length, demos_active: demos.filter(d => new Date(d.expires_at) > Date.now()).length, demos_total: demos.length });
-    },
-    async listCodes({ q, status, page }) {
-      let rows = codes.filter(c => !status || status === 'all' || statusOf(c) === status);
-      const t = (q || '').trim().toLowerCase(), nc = normCode(q);
-      if (t) rows = rows.filter(c => (nc.length >= 3 && c.code.includes(nc)) || (c.note || '').toLowerCase().includes(t));
-      return wait({ rows: rows.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE).map(c => ({ ...c, devices: devs.filter(d => d.code_id === c.id).length })), total: rows.length });
-    },
-    async generate(n, hours, maxDevices, note) {
-      const made = Array.from({ length: n }, () => ({ id: String(Math.random()), code: rnd(), duration_hours: hours, max_devices: maxDevices ?? settings.default_max_devices, note: note || null, disabled: false, created_at: new Date().toISOString(), activated_at: null, expires_at: null }));
-      codes = [...made, ...codes]; return wait(made);
-    },
-    async devices(id) { return wait(devs.filter(d => d.code_id === id)); },
-    async freeDevice(id, dev) { devs = devs.filter(d => !(d.code_id === id && d.device_id === dev)); return wait(); },
-    async extend(id, hours) { const c = codes.find(c => c.id === id);
-      if (!c.activated_at) c.duration_hours += hours; else c.expires_at = new Date(Math.max(new Date(c.expires_at), Date.now()) + hours * H).toISOString(); return wait(c); },
-    async setDisabled(id, v) { codes.find(c => c.id === id).disabled = v; return wait(); },
-    async remove(id) { codes = codes.filter(c => c.id !== id); devs = devs.filter(d => d.code_id !== id); return wait(); },
-    async listDemos({ page }) { return wait({ rows: demos.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE), total: demos.length }); },
-    async resetDemo(dev) { demos = demos.filter(d => d.device_id !== dev); return wait(); },
-    async getSettings() { return wait({ ...settings }); },
-    async saveSettings(s) { settings = { ...settings, ...s }; return wait(); },
-  };
-}
-
-const api = PREVIEW ? previewApi() : supabaseApi();
-
 // ---------------------------------------------------------------------
-//  Estado y vistas
+//  Inicio de sesión y estructura
 // ---------------------------------------------------------------------
-const state = { user: null, tab: 'codes', q: '', status: 'all', page: 0, demoPage: 0, preset: 720, generated: [], open: null, confirmDelete: false };
-const PRESETS = [[6, '6 horas'], [24, '1 día'], [168, '7 días'], [720, '30 días'], [2160, '90 días'], [8760, '1 año'], [0, 'Otra']];
-
 function renderLogin(error = '') {
   $('#app').innerHTML = `
   <div class="login">
     <form class="login-card" id="loginForm">
       <div class="brand"><span class="brand-mark"></span>Panel de Códigos</div>
-      <div><h1 class="section-title">Iniciar sesión</h1><p class="sub">Solo para el administrador.</p></div>
+      <div><h1 class="section-title">Iniciar sesión</h1><p class="sub">Para administrador y revendedores.</p></div>
       <label class="f">Correo<input class="in" id="email" type="email" autocomplete="username" required></label>
       <label class="f">Contraseña<input class="in" id="password" type="password" autocomplete="current-password" required></label>
       ${error ? `<div class="err">${esc(error)}</div>` : ''}
@@ -332,23 +337,38 @@ function renderLogin(error = '') {
   </div>`;
   $('#loginForm').addEventListener('submit', async e => {
     e.preventDefault(); $('#loginBtn').disabled = true;
-    try { state.user = await api.signIn($('#email').value.trim(), $('#password').value); renderShell(); }
-    catch (err) { renderLogin(err.message === 'Invalid login credentials' ? 'Correo o contraseña incorrectos.' : err.message); }
+    try {
+      await api.signIn($('#email').value.trim(), $('#password').value);
+      state.user = await loadProfile(); await startShell();
+    } catch (err) {
+      await api.signOut();
+      const m = err.message;
+      renderLogin(m === 'Invalid login credentials' ? 'Correo o contraseña incorrectos.' : /banned/i.test(m) ? 'Tu cuenta está bloqueada. Habla con el administrador.' : m);
+    }
   });
 }
 
+async function startShell() {
+  try { state.services = await api.services(); } catch { state.services = []; }
+  const active = state.services.filter(s => s.active);
+  if (!state.services.some(s => s.id === state.genService)) state.genService = (active[0] || state.services[0])?.id || '';
+  if (isAdmin()) { try { const us = await api.users(); state.userNames = Object.fromEntries(us.map(u => [u.user_id, u.display_name || u.email])); } catch {} }
+  renderShell();
+}
+
 function renderShell() {
+  const tabs = isAdmin()
+    ? [['codes', 'Códigos'], ['users', 'Usuarios'], ['services', 'Servicios'], ['demos', 'Demos'], ['settings', 'Ajustes']]
+    : [['codes', 'Códigos'], ['credits', 'Mis créditos']];
+  if (!tabs.some(t => t[0] === state.tab)) state.tab = 'codes';
   $('#app').innerHTML = `
   <header class="top"><div class="wrap">
     <div class="brand"><span class="brand-mark"></span>Panel de Códigos</div>
-    <nav class="tabs" role="tablist">
-      <button class="tab" role="tab" data-tab="codes">Códigos</button>
-      <button class="tab" role="tab" data-tab="demos">Demos</button>
-      <button class="tab" role="tab" data-tab="settings">Ajustes</button>
-    </nav>
-    <div class="who"><span>${esc(state.user.email)}</span><button class="btn ghost sm" id="logout">Salir</button></div>
+    <nav class="tabs" role="tablist">${tabs.map(([k, l]) => `<button class="tab" role="tab" data-tab="${k}">${l}</button>`).join('')}</nav>
+    <div class="who">
+      ${isAdmin() ? '<span class="svc-tag">Admin</span>' : `<span class="credit-pill" id="myCredits">${plural(state.user.credits, 'crédito', 'créditos')}</span>`}
+      <span>${esc(state.user.name || state.user.email)}</span><button class="btn ghost sm" id="logout">Salir</button></div>
   </div></header>
-  ${PREVIEW ? `<div class="banner"><div class="wrap">Vista previa con datos de ejemplo. Para usar tus datos reales, pega la URL y la clave de Supabase al inicio del script de este archivo.</div></div>` : ''}
   <main class="wrap" id="view"></main>
   <div id="drawerRoot"></div>`;
   $('.tabs').addEventListener('click', e => { const t = e.target.closest('[data-tab]'); if (t) { state.tab = t.dataset.tab; renderTab(); } });
@@ -358,41 +378,73 @@ function renderShell() {
 
 function renderTab() {
   document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', t.dataset.tab === state.tab));
-  if (state.tab === 'codes') renderCodes();
-  if (state.tab === 'demos') renderDemos();
-  if (state.tab === 'settings') renderSettings();
+  $('#drawerRoot').innerHTML = '';
+  ({ codes: renderCodes, users: renderUsers, services: renderServices, demos: renderDemos, settings: renderSettings, credits: renderMyCredits })[state.tab]();
 }
 
+function closeDrawer() { $('#drawerRoot').innerHTML = ''; state.open = null; }
+function drawer(title, sub, body) {
+  $('#drawerRoot').innerHTML = `
+  <div class="scrim" id="scrim"></div>
+  <aside class="drawer" role="dialog" aria-label="Detalle">
+    <div class="drawer-head"><div style="display:grid;gap:6px">${title}${sub || ''}</div><button class="x" id="closeD" aria-label="Cerrar">×</button></div>
+    <div class="drawer-body">${body}</div>
+  </aside>`;
+  $('#scrim').onclick = closeDrawer; $('#closeD').onclick = closeDrawer;
+  document.onkeydown = e => { if (e.key === 'Escape') closeDrawer(); };
+  return $('.drawer');
+}
+function confirmBox(el, text, yesLabel, onYes) {
+  el.innerHTML = `<div class="confirm"><span>${text}</span>
+    <div class="row"><button class="btn danger sm" data-yes>${yesLabel}</button><button class="btn ghost sm" data-no>Cancelar</button></div></div>`;
+  el.querySelector('[data-no]').onclick = () => el.innerHTML = '';
+  el.querySelector('[data-yes]').onclick = async e => { e.target.disabled = true; await onYes(); };
+}
+
+// ---------------------------------------------------------------------
+//  Códigos
+// ---------------------------------------------------------------------
 async function renderStats() {
   const el = $('#stats'); if (!el) return;
   try {
-    const s = await api.stats();
-    const items = [['unused', 'Sin usar', 'var(--idle)'], ['active', 'Activos', 'var(--ok)'], ['expired', 'Vencidos', 'var(--warn)'], ['disabled', 'Deshabilitados', 'var(--bad)'], ['demos_active', 'Demos activas', 'var(--accent)']];
+    const s = await api.stats(state.service);
+    const items = [['unused', 'Sin usar', 'var(--idle)'], ['active', 'Activos', 'var(--ok)'], ['expired', 'Vencidos', 'var(--warn)'], ['disabled', 'Deshab./Anulados', 'var(--bad)']];
     el.innerHTML = items.map(([k, l, c]) => `<div class="stat"><span><i class="dot" style="background:${c}"></i>${l}</span><b>${(s[k] ?? 0).toLocaleString('es-EC')}</b></div>`).join('');
+    if (!isAdmin() && s.credits != null) { state.user.credits = s.credits; const m = $('#myCredits'); if (m) m.textContent = plural(s.credits, 'crédito', 'créditos'); }
   } catch (e) { el.innerHTML = `<div class="err">No se pudieron cargar las cifras: ${esc(e.message)}</div>`; }
 }
 
+function serviceOptions(selected, { onlyActive, withAll } = {}) {
+  const list = state.services.filter(s => !onlyActive || s.active);
+  return (withAll ? `<option value="">Todos los servicios</option>` : '') +
+    list.map(s => `<option value="${esc(s.id)}" ${s.id === selected ? 'selected' : ''}>${esc(s.name)}${s.active ? '' : ' (inactivo)'}</option>`).join('');
+}
+
 function renderCodes() {
+  const admin = isAdmin();
+  const genServices = state.services.filter(s => admin || s.active);
   $('#view').innerHTML = `
   <div class="stats" id="stats"></div>
 
   <section class="gen" aria-labelledby="genTitle">
     <form class="gen-form" id="genForm">
-      <div><h2 class="section-title" id="genTitle">Generar códigos</h2>
-      <p class="sub">La duración empieza a contar cuando el usuario activa el código por primera vez.</p></div>
+      <div><h2 class="section-title" id="genTitle">Generar gift cards</h2>
+      <p class="sub">La duración empieza a contar cuando el cliente activa el código por primera vez.${admin ? '' : ' 1 crédito = 1 mes. Hasta 7 días es gratis.'}</p></div>
+      ${genServices.length ? '' : '<div class="err">No hay servicios activos. ' + (admin ? 'Crea uno en la pestaña Servicios.' : 'Habla con el administrador.') + '</div>'}
+      <label class="f">Servicio<select class="in" id="genService">${serviceOptions(state.genService, { onlyActive: !admin })}</select></label>
       <div class="f" style="display:grid;gap:6px"><span style="font-size:12.5px;font-weight:600;color:var(--muted)">Duración</span>
         <div class="presets" id="presets">${PRESETS.map(([h, l]) => `<button type="button" class="chip" data-h="${h}" aria-pressed="${state.preset === h}">${l}</button>`).join('')}</div>
         <div class="custom" id="customBox" ${state.preset === 0 ? '' : 'hidden'}>
           <input class="in" id="customN" type="number" min="1" value="2" aria-label="Cantidad de tiempo">
-          <select class="in" id="customU" aria-label="Unidad"><option value="1">horas</option><option value="24" selected>días</option><option value="720">meses (30 días)</option></select>
+          <select class="in" id="customU" aria-label="Unidad"><option value="1">horas</option><option value="24" selected>días</option><option value="720">meses</option></select>
         </div>
       </div>
       <div class="fields">
-        <label class="f">Cantidad de códigos<input class="in" id="genCount" type="number" min="1" max="1000" value="1"></label>
-        <label class="f">Dispositivos por código<input class="in" id="genMax" type="number" min="1" max="10" value="2"></label>
+        <label class="f">Cantidad de códigos<input class="in" id="genCount" type="number" min="1" max="${admin ? 1000 : 100}" value="1"></label>
+        ${admin ? '<label class="f">Dispositivos por código<input class="in" id="genMax" type="number" min="1" max="10" value="2"></label>' : ''}
       </div>
-      <label class="f">Nota (opcional)<input class="in" id="genNote" maxlength="200" placeholder="Ej: Donación de María, 5 USD"></label>
-      <div class="row"><button class="btn" id="genBtn">Generar</button><span class="sub" id="genSummary"></span></div>
+      <label class="f">Nota (opcional)<input class="in" id="genNote" maxlength="200" placeholder="Ej: Cliente Juan, 0991234567"></label>
+      <div class="row"><button class="btn" id="genBtn" ${genServices.length ? '' : 'disabled'}>Generar</button><span class="sub" id="genSummary"></span></div>
     </form>
     <div class="stub">
       <div class="stub-head"><h3 class="section-title" style="font-size:15px">Recién generados</h3>
@@ -404,19 +456,19 @@ function renderCodes() {
   <section class="panel" aria-label="Lista de códigos">
     <div class="toolbar">
       <input class="in" id="search" type="search" placeholder="Buscar código o nota" value="${esc(state.q)}">
+      <select class="in" id="svcFilter" style="max-width:220px">${serviceOptions(state.service, { withAll: true })}</select>
       <div class="presets" id="statusChips">${[['all', 'Todos'], ...Object.entries(STATUS)].map(([k, l]) => `<button class="chip" data-s="${k}" aria-pressed="${state.status === k}">${l}</button>`).join('')}</div>
     </div>
     <div class="scroll"><table>
-      <thead><tr><th>Código</th><th>Estado</th><th>Duración</th><th>Activado</th><th>Vence</th><th>Dispositivos</th><th>Nota</th></tr></thead>
-      <tbody id="rows"><tr><td colspan="7" class="sub">Cargando…</td></tr></tbody>
+      <thead><tr><th>Código</th><th>Servicio</th><th>Estado</th><th>Duración</th><th>Activado</th><th>Vence</th><th>Dispositivos</th>${admin ? '<th>Creado por</th>' : ''}<th>Nota</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="9" class="sub">Cargando…</td></tr></tbody>
     </table></div>
     <div class="pager" id="pager"></div>
   </section>`;
 
-  renderStats();
-  loadRows();
-  updateSummary();
+  renderStats(); loadRows(); updateSummary();
 
+  $('#genService').addEventListener('change', e => { state.genService = e.target.value; });
   $('#presets').addEventListener('click', e => {
     const b = e.target.closest('[data-h]'); if (!b) return;
     state.preset = +b.dataset.h;
@@ -426,20 +478,23 @@ function renderCodes() {
   ['#customN', '#customU', '#genCount'].forEach(s => $(s).addEventListener('input', updateSummary));
   $('#genForm').addEventListener('submit', async e => {
     e.preventDefault();
-    const hours = currentHours(), n = Math.min(1000, Math.max(1, +$('#genCount').value || 1));
+    const hours = currentHours(), n = Math.min(admin ? 1000 : 100, Math.max(1, +$('#genCount').value || 1));
     if (!hours) return toast('Indica una duración válida');
+    if (!state.genService) return toast('Elige un servicio');
     $('#genBtn').disabled = true;
     try {
-      const made = await api.generate(n, hours, Math.min(10, Math.max(1, +$('#genMax').value || 2)), $('#genNote').value.trim());
+      const max = admin ? Math.min(10, Math.max(1, +$('#genMax').value || 2)) : null;
+      const made = await api.generate(state.genService, n, hours, max, $('#genNote').value.trim());
       state.generated = made; $('#genCards').innerHTML = genCardsHtml(); $('#copyAll').hidden = false;
       toast(`${made.length} código${made.length > 1 ? 's' : ''} generado${made.length > 1 ? 's' : ''}`);
-      state.page = 0; loadRows(); renderStats();
+      state.page = 0; loadRows(); renderStats(); await refreshCredits(); updateSummary();
     } catch (err) { toast(err.message); }
     $('#genBtn').disabled = false;
   });
   $('#genCards').addEventListener('click', e => { const b = e.target.closest('[data-copy]'); if (b) copyText(b.dataset.copy); });
   $('#copyAll').addEventListener('click', () => copyText(state.generated.map(c => fmtCode(c.code)).join('\n')));
   let t; $('#search').addEventListener('input', e => { clearTimeout(t); t = setTimeout(() => { state.q = e.target.value; state.page = 0; loadRows(); }, 300); });
+  $('#svcFilter').addEventListener('change', e => { state.service = e.target.value; state.page = 0; loadRows(); renderStats(); });
   $('#statusChips').addEventListener('click', e => {
     const b = e.target.closest('[data-s]'); if (!b) return; state.status = b.dataset.s; state.page = 0;
     document.querySelectorAll('#statusChips .chip').forEach(c => c.setAttribute('aria-pressed', c === b)); loadRows();
@@ -452,115 +507,303 @@ function currentHours() {
   return n > 0 ? Math.round(n * u) : 0;
 }
 function updateSummary() {
+  const el = $('#genSummary'); if (!el) return;
   const h = currentHours(), n = +$('#genCount').value || 1;
-  $('#genSummary').textContent = h ? `${n} × ${fmtHours(h)} de acceso` : '';
+  if (!h) { el.textContent = ''; return; }
+  let txt = `${n} × ${fmtHours(h)}`;
+  if (!isAdmin()) {
+    const total = creditCost(h) * n, bal = state.user.credits ?? 0;
+    txt += total ? ` · cuesta <span class="cost ${total > bal ? 'bad' : ''}">${plural(total, 'crédito', 'créditos')}</span> (tienes ${bal})` : ' · <span class="cost">gratis</span>';
+  }
+  el.innerHTML = txt;
 }
 function genCardsHtml() {
   if (!state.generated.length) return `<div class="empty">Los códigos que generes aparecerán aquí, listos para copiar y enviar.</div>`;
-  return state.generated.map(c => `<div class="gcard"><div><div class="gcode">${fmtCode(c.code)}</div><div class="gmeta">${fmtHours(c.duration_hours)} · ${c.max_devices} disp.${c.note ? ' · ' + esc(c.note) : ''}</div></div>
+  return state.generated.map(c => `<div class="gcard"><div><div class="gcode">${fmtCode(c.code)}</div><div class="gmeta">${esc(svcName(c.service_id))} · ${fmtHours(c.duration_hours)} · ${c.max_devices} disp.${c.note ? ' · ' + esc(c.note) : ''}</div></div>
     <button class="btn ghost sm" data-copy="${fmtCode(c.code)}">Copiar</button></div>`).join('');
 }
 
 async function loadRows() {
   const tb = $('#rows'); if (!tb) return;
+  const admin = isAdmin(), cols = admin ? 9 : 8;
   try {
-    const { rows, total } = await api.listCodes({ q: state.q, status: state.status, page: state.page });
+    const { rows, total } = await api.listCodes({ q: state.q, status: state.status, service: state.service, page: state.page });
     tb.innerHTML = rows.length ? rows.map(c => {
       const s = statusOf(c);
       return `<tr data-id="${c.id}" tabindex="0">
         <td class="mono" style="font-weight:600;letter-spacing:.05em">${fmtCode(c.code)}</td>
+        <td><span class="svc-tag">${esc(svcName(c.service_id))}</span></td>
         <td>${pill(s)}</td>
         <td>${fmtHours(c.duration_hours)}</td>
         <td>${fmtDate(c.activated_at)}</td>
         <td>${c.expires_at ? `${fmtDate(c.expires_at)}<br><span class="sub">${s === 'active' ? remaining(c.expires_at) : ''}</span>` : '<span class="sub">al activarse</span>'}</td>
         <td><span class="slots">${Array.from({ length: c.max_devices }, (_, i) => `<i class="${i < c.devices ? 'on' : ''}"></i>`).join('')}</span>${c.devices}/${c.max_devices}</td>
+        ${admin ? `<td>${c.created_by && state.userNames[c.created_by] ? esc(state.userNames[c.created_by]) : '<span class="sub">Admin</span>'}</td>` : ''}
         <td class="note">${esc(c.note || '')}</td></tr>`;
-    }).join('') : `<tr><td colspan="7"><div class="empty">No hay códigos con este filtro.</div></td></tr>`;
+    }).join('') : `<tr><td colspan="${cols}"><div class="empty">No hay códigos con este filtro.</div></td></tr>`;
     state.rows = rows;
     const from = total ? state.page * PAGE_SIZE + 1 : 0, to = Math.min(total, (state.page + 1) * PAGE_SIZE);
     $('#pager').innerHTML = `<span>${from}–${to} de ${total.toLocaleString('es-EC')}</span>
       <div class="row"><button class="btn ghost sm" id="prev" ${state.page ? '' : 'disabled'}>Anterior</button><button class="btn ghost sm" id="next" ${to < total ? '' : 'disabled'}>Siguiente</button></div>`;
     $('#prev').onclick = () => { state.page--; loadRows(); };
     $('#next').onclick = () => { state.page++; loadRows(); };
-    tb.onclick = e => { const tr = e.target.closest('tr[data-id]'); if (tr) openDrawer(state.rows.find(r => r.id === tr.dataset.id)); };
-    tb.onkeydown = e => { if (e.key === 'Enter') { const tr = e.target.closest('tr[data-id]'); if (tr) openDrawer(state.rows.find(r => r.id === tr.dataset.id)); } };
-  } catch (e) { tb.innerHTML = `<tr><td colspan="7" class="err">No se pudo cargar la lista: ${esc(e.message)}</td></tr>`; }
+    const open = e => { const tr = e.target.closest('tr[data-id]'); if (tr) openCode(state.rows.find(r => r.id === tr.dataset.id)); };
+    tb.onclick = open; tb.onkeydown = e => { if (e.key === 'Enter') open(e); };
+  } catch (e) { tb.innerHTML = `<tr><td colspan="${cols}" class="err">No se pudo cargar la lista: ${esc(e.message)}</td></tr>`; }
 }
 
-async function openDrawer(code) {
-  state.open = code; state.confirmDelete = false;
+async function openCode(code) {
+  state.open = code;
+  const admin = isAdmin();
   const devs = await api.devices(code.id).catch(() => []);
   const s = statusOf(code);
-  $('#drawerRoot').innerHTML = `
-  <div class="scrim" id="scrim"></div>
-  <aside class="drawer" role="dialog" aria-label="Detalle del código">
-    <div class="drawer-head">
-      <div style="display:grid;gap:6px"><div class="gcode" style="font-size:19px">${fmtCode(code.code)}</div><div>${pill(s)}</div></div>
-      <button class="x" id="closeD" aria-label="Cerrar">×</button>
-    </div>
-    <div class="drawer-body">
+  const used = !!code.activated_at || devs.length > 0;
+  const canDisable = !code.disabled;
+  const d = drawer(`<div class="gcode" style="font-size:19px">${fmtCode(code.code)}</div>`, `<div class="row">${pill(s)}<span class="svc-tag">${esc(svcName(code.service_id))}</span></div>`, `
       <div class="row"><button class="btn ghost sm" data-copy="${fmtCode(code.code)}">Copiar código</button></div>
       <dl class="kv">
         <dt>Duración</dt><dd>${fmtHours(code.duration_hours)}</dd>
         <dt>Creado</dt><dd>${fmtDate(code.created_at)}</dd>
+        ${admin ? `<dt>Creado por</dt><dd>${code.created_by && state.userNames[code.created_by] ? esc(state.userNames[code.created_by]) : 'Admin'}</dd>` : ''}
+        ${code.credits_cost ? `<dt>Costó</dt><dd>${plural(code.credits_cost, 'crédito', 'créditos')}</dd>` : ''}
         <dt>Activado</dt><dd>${fmtDate(code.activated_at)}</dd>
         <dt>Vence</dt><dd>${code.expires_at ? fmtDate(code.expires_at) : 'al activarse'}</dd>
         ${s === 'active' ? `<dt>Tiempo</dt><dd>${remaining(code.expires_at)}</dd>` : ''}
+        ${code.voided_at ? `<dt>Anulado</dt><dd>${fmtDate(code.voided_at)}</dd>` : ''}
         <dt>Nota</dt><dd style="white-space:normal">${esc(code.note || '—')}</dd>
       </dl>
       <div style="display:grid;gap:8px">
         <h3 class="section-title" style="font-size:14px">Dispositivos (${devs.length}/${code.max_devices})</h3>
         ${devs.length ? devs.map(d => `<div class="dev"><div><b>${esc(d.device_name || 'Dispositivo')}</b><small>Último uso: ${fmtDate(d.last_seen)}</small></div>
-          <button class="btn ghost sm" data-free="${esc(d.device_id)}">Liberar</button></div>`).join('') : `<div class="empty">Aún no se usa en ningún dispositivo.</div>`}
-        <p class="help">Liberar un dispositivo deja ese espacio libre, por ejemplo si el usuario cambió de celular.</p>
+          ${admin ? `<button class="btn ghost sm" data-free="${esc(d.device_id)}">Liberar</button>` : ''}</div>`).join('') : `<div class="empty">Aún no se usa en ningún dispositivo.</div>`}
+        ${admin ? '<p class="help">Liberar un dispositivo deja ese espacio libre, por ejemplo si el usuario cambió de celular.</p>' : ''}
       </div>
-      <div style="display:grid;gap:8px">
+      ${admin && !code.voided_at ? `<div style="display:grid;gap:8px">
         <h3 class="section-title" style="font-size:14px">Extender</h3>
         <div class="row">
-          <select class="in" id="extH" style="flex:1"><option value="24">+1 día</option><option value="168">+7 días</option><option value="720" selected>+30 días</option><option value="8760">+1 año</option></select>
+          <select class="in" id="extH" style="flex:1"><option value="24">+1 día</option><option value="168">+7 días</option><option value="720" selected>+1 mes</option><option value="8640">+12 meses</option></select>
           <button class="btn" id="extBtn">Extender</button>
-        </div>
-      </div>
+        </div></div>` : ''}
       <div class="row">
-        <button class="btn ghost" id="toggleBtn">${code.disabled ? 'Habilitar' : 'Deshabilitar'}</button>
-        <button class="btn ghost" id="delBtn" style="color:var(--bad)">Eliminar</button>
+        ${canDisable ? `<button class="btn ghost" id="disBtn" style="color:var(--bad)">${used ? 'Deshabilitar' : 'Anular'}</button>` : ''}
+        ${admin && code.disabled && !code.voided_at ? '<button class="btn ghost" id="enBtn">Habilitar</button>' : ''}
+        ${admin ? '<button class="btn ghost" id="delBtn" style="color:var(--bad)">Eliminar</button>' : ''}
       </div>
-      <div id="confirmBox"></div>
-    </div>
-  </aside>`;
-  const close = () => { $('#drawerRoot').innerHTML = ''; state.open = null; };
-  $('#scrim').onclick = close; $('#closeD').onclick = close;
-  document.onkeydown = e => { if (e.key === 'Escape' && state.open) close(); };
-  const refresh = async (updated) => { loadRows(); renderStats(); if (updated) openDrawer(updated); else close(); };
-  $('.drawer').addEventListener('click', async e => {
+      ${code.voided_at ? '<p class="help">Este código fue anulado sin usarse. Ya no se puede activar.</p>' : ''}
+      <div id="confirmBox"></div>`);
+  const refresh = async (reopen) => { loadRows(); renderStats(); await refreshCredits();
+    if (reopen) { const { rows } = await api.listCodes({ q: normCode(code.code), status: 'all', service: '', page: 0 }); const u = rows.find(r => r.id === code.id); if (u) return openCode(u); }
+    closeDrawer(); };
+  d.addEventListener('click', async e => {
     const cp = e.target.closest('[data-copy]'); if (cp) return copyText(cp.dataset.copy);
     const fr = e.target.closest('[data-free]');
-    if (fr) { fr.disabled = true; await api.freeDevice(code.id, fr.dataset.free).catch(err => toast(err.message)); toast('Dispositivo liberado'); refresh(code); }
+    if (fr) { fr.disabled = true; try { await api.freeDevice(code.id, fr.dataset.free); toast('Dispositivo liberado'); } catch (err) { toast(err.message); } refresh(true); }
   });
-  $('#extBtn').onclick = async () => {
-    try { const u = await api.extend(code.id, +$('#extH').value); toast('Código extendido'); refresh({ ...code, ...u }); } catch (err) { toast(err.message); }
-  };
-  $('#toggleBtn').onclick = async () => {
-    try { await api.setDisabled(code.id, !code.disabled); toast(code.disabled ? 'Código habilitado' : 'Código deshabilitado'); refresh({ ...code, disabled: !code.disabled }); } catch (err) { toast(err.message); }
-  };
-  $('#delBtn').onclick = () => {
-    $('#confirmBox').innerHTML = `<div class="confirm"><span>¿Eliminar ${fmtCode(code.code)}? Quien lo use perderá el acceso en su próxima validación. No se puede deshacer.</span>
-      <div class="row"><button class="btn danger sm" id="delYes">Sí, eliminar</button><button class="btn ghost sm" id="delNo">Cancelar</button></div></div>`;
-    $('#delNo').onclick = () => $('#confirmBox').innerHTML = '';
-    $('#delYes').onclick = async () => { try { await api.remove(code.id); toast('Código eliminado'); refresh(null); } catch (err) { toast(err.message); } };
-  };
+  $('#extBtn') && ($('#extBtn').onclick = async () => {
+    try { await api.extend(code.id, +$('#extH').value); toast('Código extendido'); refresh(true); } catch (err) { toast(err.message); }
+  });
+  $('#disBtn') && ($('#disBtn').onclick = () => {
+    const refundTxt = code.credits_cost && code.created_by ? ` Se devolverán ${plural(code.credits_cost, 'crédito', 'créditos')}.` : '';
+    const text = used
+      ? `¿Deshabilitar ${fmtCode(code.code)}? El cliente perderá el acceso en su próxima validación. Como ya está en uso, <b>no se devuelven créditos</b>.`
+      : `¿Anular ${fmtCode(code.code)}? Quedará inválido para siempre.${refundTxt}`;
+    confirmBox($('#confirmBox'), text, used ? 'Sí, deshabilitar' : 'Sí, anular', async () => {
+      try { const r = await api.disable(code.id); toast(r.voided ? (r.refunded ? `Código anulado · +${plural(r.refunded, 'crédito', 'créditos')}` : 'Código anulado') : 'Código deshabilitado'); refresh(true); }
+      catch (err) { toast(err.message); }
+    });
+  });
+  $('#enBtn') && ($('#enBtn').onclick = async () => { try { await api.enable(code.id); toast('Código habilitado'); refresh(true); } catch (err) { toast(err.message); } });
+  $('#delBtn') && ($('#delBtn').onclick = () => confirmBox($('#confirmBox'),
+    `¿Eliminar ${fmtCode(code.code)}? Quien lo use perderá el acceso. Si era de un revendedor y estaba sin usar, se le devuelven los créditos. No se puede deshacer.`,
+    'Sí, eliminar', async () => { try { await api.remove(code.id); toast('Código eliminado'); refresh(false); } catch (err) { toast(err.message); } }));
 }
 
+// ---------------------------------------------------------------------
+//  Usuarios (solo admin)
+// ---------------------------------------------------------------------
+async function renderUsers() {
+  $('#view').innerHTML = `
+  <div class="grid2">
+    <form class="card" id="newUser">
+      <div><h2 class="section-title">Nuevo usuario</h2><p class="sub">Podrá entrar a este mismo panel con su correo y contraseña, y generar gift cards de cualquier servicio activo usando sus créditos.</p></div>
+      <label class="f">Nombre<input class="in" id="nuName" maxlength="60" placeholder="Ej: Tienda Carlos"></label>
+      <label class="f">Correo<input class="in" id="nuEmail" type="email" required autocomplete="off"></label>
+      <label class="f">Contraseña<input class="in" id="nuPass" type="text" minlength="8" required autocomplete="off" placeholder="Mínimo 8 caracteres"></label>
+      <label class="f">Créditos iniciales<input class="in" id="nuCredits" type="number" min="0" value="0"></label>
+      <button class="btn" id="nuBtn">Crear usuario</button>
+      <p class="help">Envíale tú mismo el correo y la contraseña. No se manda ningún email automático.</p>
+    </form>
+    <section class="panel">
+      <div class="toolbar"><h2 class="section-title">Usuarios</h2></div>
+      <div class="scroll"><table>
+        <thead><tr><th>Usuario</th><th>Créditos</th><th>Códigos</th><th>Usados</th><th>Anulados</th><th>Gastó</th><th>Estado</th></tr></thead>
+        <tbody id="uRows"><tr><td colspan="7" class="sub">Cargando…</td></tr></tbody>
+      </table></div>
+    </section>
+  </div>`;
+  const load = async () => {
+    try {
+      const us = await api.users();
+      state.userNames = Object.fromEntries(us.map(u => [u.user_id, u.display_name || u.email]));
+      state.usersList = us;
+      $('#uRows').innerHTML = us.length ? us.map(u => `<tr data-id="${u.user_id}" tabindex="0">
+        <td><b>${esc(u.display_name || '—')}</b><br><span class="sub">${esc(u.email)}</span></td>
+        <td><span class="credit-pill">${u.credits}</span></td>
+        <td>${u.codes_total}</td><td>${u.codes_used}</td><td>${u.codes_voided}</td><td>${u.credits_spent}</td>
+        <td>${u.active ? '<span class="pill st-active">Activo</span>' : '<span class="pill st-disabled">Bloqueado</span>'}</td></tr>`).join('')
+        : `<tr><td colspan="7"><div class="empty">Todavía no hay usuarios. Crea el primero con el formulario.</div></td></tr>`;
+    } catch (e) { $('#uRows').innerHTML = `<tr><td colspan="7" class="err">${esc(e.message)}</td></tr>`; }
+  };
+  $('#uRows').onclick = e => { const tr = e.target.closest('tr[data-id]'); if (tr) openUser(state.usersList.find(u => u.user_id === tr.dataset.id), load); };
+  $('#newUser').addEventListener('submit', async e => {
+    e.preventDefault(); $('#nuBtn').disabled = true;
+    try {
+      const r = await api.usersFn({ action: 'create', name: $('#nuName').value, email: $('#nuEmail').value, password: $('#nuPass').value, credits: +$('#nuCredits').value || 0 });
+      toast(r.warning || 'Usuario creado');
+      e.target.reset(); load();
+    } catch (err) { toast(err.message); }
+    $('#nuBtn').disabled = false;
+  });
+  load();
+}
+
+async function openUser(u, reload) {
+  const kindTxt = { recarga: 'Recarga', ajuste: 'Ajuste', consumo: 'Consumo', devolucion: 'Devolución' };
+  const d = drawer(`<b style="font-size:18px">${esc(u.display_name || u.email)}</b>`, `<span class="sub">${esc(u.email)}</span>`, `
+    <div class="row" style="justify-content:space-between"><div><div class="sub">Créditos</div><div class="big" id="uBal">${u.credits}</div></div>
+      ${u.active ? '<span class="pill st-active">Activo</span>' : '<span class="pill st-disabled">Bloqueado</span>'}</div>
+    <div style="display:grid;gap:8px">
+      <h3 class="section-title" style="font-size:14px">Recargar o quitar créditos</h3>
+      <div class="row"><input class="in" id="cAmt" type="number" value="10" style="flex:1" aria-label="Cantidad">
+        <button class="btn" id="cAdd">Sumar</button><button class="btn ghost" id="cSub">Quitar</button></div>
+      <input class="in" id="cNote" maxlength="120" placeholder="Nota (opcional), ej: pago 20 USD">
+    </div>
+    <div style="display:grid;gap:8px">
+      <h3 class="section-title" style="font-size:14px">Nueva contraseña</h3>
+      <div class="row"><input class="in" id="uPass" type="text" minlength="8" placeholder="Mínimo 8 caracteres" style="flex:1"><button class="btn ghost" id="uPassBtn">Cambiar</button></div>
+    </div>
+    <div class="row">
+      <button class="btn ghost" id="uToggle">${u.active ? 'Bloquear' : 'Desbloquear'}</button>
+      <button class="btn ghost" id="uDel" style="color:var(--bad)">Eliminar</button>
+    </div>
+    <p class="help">Bloquear le impide entrar y generar. Sus códigos ya vendidos siguen funcionando.</p>
+    <div id="confirmBox"></div>
+    <div style="display:grid;gap:8px"><h3 class="section-title" style="font-size:14px">Historial de créditos</h3><div class="ledger" id="uLedger"><span class="sub">Cargando…</span></div></div>`);
+  const loadLedger = async () => {
+    try {
+      const rows = await api.ledger(u.user_id);
+      $('#uLedger').innerHTML = rows.length ? rows.map(r => `<div><span><b>${kindTxt[r.kind]}</b> <span class="sub">${esc(r.note || '')}</span><br><span class="sub">${fmtDate(r.created_at)}</span></span>
+        <span style="text-align:right"><span class="${r.delta > 0 ? 'plus' : 'minus'}">${r.delta > 0 ? '+' : ''}${r.delta}</span><br><span class="sub">saldo ${r.balance_after}</span></span></div>`).join('')
+        : '<span class="sub">Sin movimientos todavía.</span>';
+    } catch (e) { $('#uLedger').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+  };
+  const credit = async sign => {
+    const n = Math.floor(Math.abs(+$('#cAmt').value || 0)); if (!n) return toast('Indica una cantidad');
+    try { const bal = await api.addCredits(u.user_id, sign * n, $('#cNote').value.trim()); u.credits = bal; $('#uBal').textContent = bal; $('#cNote').value = '';
+      toast(sign > 0 ? `+${n} créditos` : `−${n} créditos`); loadLedger(); reload(); } catch (err) { toast(err.message); }
+  };
+  $('#cAdd').onclick = () => credit(1);
+  $('#cSub').onclick = () => credit(-1);
+  $('#uPassBtn').onclick = async () => {
+    try { await api.usersFn({ action: 'set_password', user_id: u.user_id, password: $('#uPass').value }); $('#uPass').value = ''; toast('Contraseña cambiada'); } catch (err) { toast(err.message); }
+  };
+  $('#uToggle').onclick = async () => {
+    try { await api.usersFn({ action: 'set_active', user_id: u.user_id, active: !u.active }); u.active = !u.active; toast(u.active ? 'Usuario desbloqueado' : 'Usuario bloqueado'); reload(); openUser(u, reload); } catch (err) { toast(err.message); }
+  };
+  $('#uDel').onclick = () => confirmBox($('#confirmBox'),
+    `¿Eliminar a ${esc(u.display_name || u.email)}? Perderá su cuenta, sus ${u.credits} créditos y su historial. Los códigos que ya generó siguen funcionando. No se puede deshacer.`,
+    'Sí, eliminar', async () => { try { await api.usersFn({ action: 'delete', user_id: u.user_id }); toast('Usuario eliminado'); closeDrawer(); reload(); } catch (err) { toast(err.message); } });
+  loadLedger();
+}
+
+// ---------------------------------------------------------------------
+//  Servicios (solo admin)
+// ---------------------------------------------------------------------
+async function renderServices() {
+  $('#view').innerHTML = `
+  <div class="grid2">
+    <form class="card" id="newSvc">
+      <div><h2 class="section-title">Nuevo servicio</h2><p class="sub">Cada servicio es una app distinta. Sus códigos solo funcionan en esa app.</p></div>
+      <label class="f">Nombre<input class="in" id="svName" maxlength="60" required placeholder="Ej: VideoPremium"></label>
+      <label class="f">ID para la app<input class="in mono" id="svId" maxlength="40" required pattern="[a-z0-9-]{2,40}" placeholder="videopremium">
+        <span class="help">Solo minúsculas y números. La app de este servicio debe enviar este ID al validar. No se puede cambiar después.</span></label>
+      <button class="btn" id="svBtn">Crear servicio</button>
+    </form>
+    <section class="panel">
+      <div class="toolbar"><h2 class="section-title">Servicios</h2></div>
+      <div class="scroll"><table>
+        <thead><tr><th>Nombre</th><th>ID</th><th>Estado</th><th></th></tr></thead>
+        <tbody id="svRows"></tbody>
+      </table></div>
+      <div class="pager"><span>Un servicio inactivo no aparece para los revendedores, pero sus códigos ya vendidos siguen funcionando.</span></div>
+    </section>
+  </div>`;
+  const draw = () => {
+    $('#svRows').innerHTML = state.services.map(s => `<tr style="cursor:default">
+      <td><input class="in" value="${esc(s.name)}" data-rename="${esc(s.id)}" maxlength="60" style="min-width:160px"></td>
+      <td class="mono">${esc(s.id)}</td>
+      <td>${s.active ? '<span class="pill st-active">Activo</span>' : '<span class="pill st-disabled">Inactivo</span>'}</td>
+      <td><button class="btn ghost sm" data-toggle="${esc(s.id)}">${s.active ? 'Desactivar' : 'Activar'}</button></td></tr>`).join('');
+  };
+  const reload = async () => { state.services = await api.services(); draw(); };
+  draw();
+  let idTouched = false;
+  $('#svName').addEventListener('input', e => { if (!idTouched) $('#svId').value = slug(e.target.value); });
+  $('#svId').addEventListener('input', e => { idTouched = true; e.target.value = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''); });
+  $('#newSvc').addEventListener('submit', async e => {
+    e.preventDefault(); $('#svBtn').disabled = true;
+    try { await api.addService($('#svId').value.trim(), $('#svName').value.trim()); toast('Servicio creado'); e.target.reset(); idTouched = false; await reload(); }
+    catch (err) { toast(/duplicate|unique/i.test(err.message) ? 'Ya existe un servicio con ese ID' : err.message); }
+    $('#svBtn').disabled = false;
+  });
+  $('#svRows').addEventListener('click', async e => {
+    const b = e.target.closest('[data-toggle]'); if (!b) return;
+    const s = state.services.find(x => x.id === b.dataset.toggle);
+    try { await api.updateService(s.id, { active: !s.active }); toast(s.active ? 'Servicio desactivado' : 'Servicio activado'); await reload(); } catch (err) { toast(err.message); }
+  });
+  $('#svRows').addEventListener('change', async e => {
+    const i = e.target.closest('[data-rename]'); if (!i) return;
+    const name = i.value.trim(); if (!name) return;
+    try { await api.updateService(i.dataset.rename, { name }); toast('Nombre guardado'); await reload(); } catch (err) { toast(err.message); }
+  });
+}
+
+// ---------------------------------------------------------------------
+//  Mis créditos (revendedor)
+// ---------------------------------------------------------------------
+async function renderMyCredits() {
+  await refreshCredits();
+  const kindTxt = { recarga: 'Recarga', ajuste: 'Ajuste', consumo: 'Generaste códigos', devolucion: 'Devolución' };
+  $('#view').innerHTML = `
+  <div class="grid2">
+    <div class="card">
+      <div class="sub">Tu saldo</div><div class="big">${state.user.credits}</div><div class="sub">créditos</div>
+      <div class="note-box"><b>Cuánto cuesta cada gift card</b><br>
+        6 horas, 1 día o 7 días: gratis<br>1 mes: 1 crédito · 3 meses: 3 · 6 meses: 6 · 12 meses: 12<br><br>
+        Si anulas un código que todavía no se usó, te devolvemos sus créditos. Si ya está en uso, se deshabilita sin devolución.<br><br>
+        Para recargar, habla con el administrador.</div>
+    </div>
+    <section class="card"><h2 class="section-title">Movimientos</h2><div class="ledger" id="myLedger"><span class="sub">Cargando…</span></div></section>
+  </div>`;
+  try {
+    const rows = await api.ledger(null);
+    $('#myLedger').innerHTML = rows.length ? rows.map(r => `<div><span><b>${kindTxt[r.kind]}</b> <span class="sub">${esc(r.note || '')}</span><br><span class="sub">${fmtDate(r.created_at)}</span></span>
+      <span style="text-align:right"><span class="${r.delta > 0 ? 'plus' : 'minus'}">${r.delta > 0 ? '+' : ''}${r.delta}</span><br><span class="sub">saldo ${r.balance_after}</span></span></div>`).join('')
+      : '<span class="sub">Todavía no tienes movimientos.</span>';
+  } catch (e) { $('#myLedger').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+}
+
+// ---------------------------------------------------------------------
+//  Demos y ajustes (solo admin)
+// ---------------------------------------------------------------------
 async function renderDemos() {
   $('#view').innerHTML = `
-  <div class="stats" id="stats"></div>
   <section class="panel">
     <div class="toolbar" style="justify-content:space-between"><div><h2 class="section-title">Demos</h2>
-      <p class="sub">Cada dispositivo puede probar la app una sola vez. "Permitir otra demo" le da una nueva oportunidad.</p></div></div>
+      <p class="sub">Cada dispositivo puede probar la app una sola vez. "Permitir otra demo" le da una nueva oportunidad. Se activan en Ajustes.</p></div></div>
     <div class="scroll"><table><thead><tr><th>Dispositivo</th><th>Estado</th><th>Inicio</th><th>Termina</th><th></th></tr></thead><tbody id="demoRows"><tr><td colspan="5" class="sub">Cargando…</td></tr></tbody></table></div>
     <div class="pager" id="demoPager"></div>
   </section>`;
-  renderStats();
   const load = async () => {
     try {
       const { rows, total } = await api.listDemos({ page: state.demoPage });
@@ -578,7 +821,7 @@ async function renderDemos() {
   };
   $('#demoRows').onclick = async e => {
     const b = e.target.closest('[data-reset]'); if (!b) return;
-    b.disabled = true; try { await api.resetDemo(b.dataset.reset); toast('Ese dispositivo puede volver a probar la demo'); load(); renderStats(); } catch (err) { toast(err.message); }
+    b.disabled = true; try { await api.resetDemo(b.dataset.reset); toast('Ese dispositivo puede volver a probar la demo'); load(); } catch (err) { toast(err.message); }
   };
   load();
 }
@@ -588,12 +831,12 @@ async function renderSettings() {
   let s; try { s = await api.getSettings(); } catch (e) { $('#view').innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
   $('#view').innerHTML = `
   <form class="settings" id="setForm">
-    <div><h2 class="section-title">Ajustes</h2><p class="sub">Los cambios llegan a la app en su siguiente validación.</p></div>
+    <div><h2 class="section-title">Ajustes</h2><p class="sub">Valen para todos los servicios. Los cambios llegan a las apps en su siguiente validación.</p></div>
     <label class="switch"><input type="checkbox" id="sDemo" ${s.demo_enabled ? 'checked' : ''}> Permitir demos <span class="help">Botón "Probar gratis" en la pantalla de acceso.</span></label>
     <div class="fields">
       <label class="f">Duración de la demo (horas)<input class="in" id="sDemoH" type="number" min="1" max="720" value="${s.demo_hours}"></label>
-      <label class="f">Dispositivos por código (por defecto)<input class="in" id="sMax" type="number" min="1" max="10" value="${s.default_max_devices}"></label>
-      <label class="f">Revalidar cada (horas)<input class="in" id="sReval" type="number" min="1" max="168" value="${s.revalidate_hours}"><span class="help">Cada cuánto la app confirma con el servidor. Menos horas = bloqueos más rápidos, más consultas.</span></label>
+      <label class="f">Dispositivos por código (por defecto)<input class="in" id="sMax" type="number" min="1" max="10" value="${s.default_max_devices}"><span class="help">Los revendedores siempre generan con este número.</span></label>
+      <label class="f">Revalidar cada (horas)<input class="in" id="sReval" type="number" min="1" max="168" value="${s.revalidate_hours}"><span class="help">Cada cuánto la app confirma con el servidor.</span></label>
       <label class="f">Uso sin internet (horas)<input class="in" id="sGrace" type="number" min="0" max="720" value="${s.offline_grace_hours}"><span class="help">Tiempo máximo sin validar antes de pedir conexión.</span></label>
     </div>
     <label class="f">Enlace del botón "Donar"<input class="in" id="sUrl" type="url" value="${esc(s.donation_url)}"></label>
@@ -614,7 +857,8 @@ async function renderSettings() {
 
 // Arranque
 (async () => {
-  try { state.user = await api.session(); } catch { state.user = null; }
-  state.user ? renderShell() : renderLogin();
+  try { state.user = await loadProfile(); }
+  catch (e) { await api.signOut(); return renderLogin(e.message); }
+  state.user ? startShell() : renderLogin();
 })();
 </script>
