@@ -839,6 +839,12 @@ async function renderSettings() {
       <label class="f">Revalidar cada (horas)<input class="in" id="sReval" type="number" min="1" max="168" value="${s.revalidate_hours}"><span class="help">Cada cuánto la app confirma con el servidor.</span></label>
       <label class="f">Uso sin internet (horas)<input class="in" id="sGrace" type="number" min="0" max="720" value="${s.offline_grace_hours}"><span class="help">Tiempo máximo sin validar antes de pedir conexión.</span></label>
     </div>
+    ${'trial_one_per_device' in s ? `
+    <div><h2 class="section-title">Pruebas</h2><p class="sub">Códigos de 7 días o menos (no gastan créditos).</p></div>
+    <label class="switch"><input type="checkbox" id="sTrialOne" ${s.trial_one_per_device ? 'checked' : ''}> Una prueba por dispositivo <span class="help">Un teléfono solo puede usar un código de prueba por servicio. Si intenta otro, la app le dice que el código venció y que pida uno nuevo. Los códigos pagados no se ven afectados.</span></label>
+    <div class="fields">
+      <label class="f">Pruebas al día por revendedor<input class="in" id="sTrialDaily" type="number" min="0" max="1000" value="${s.reseller_daily_trials}"><span class="help">Cuántos códigos de prueba puede generar cada revendedor por día (hora de Ecuador). 0 = ninguno. El admin no tiene límite.</span></label>
+    </div>` : ''}
     <label class="f">Enlace del botón "Donar"<input class="in" id="sUrl" type="url" value="${esc(s.donation_url)}"></label>
     <label class="f">Mensaje en la pantalla de acceso<textarea class="in" id="sMsg" rows="3" maxlength="400">${esc(s.welcome_message)}</textarea></label>
     <div class="row"><button class="btn" id="sSave">Guardar ajustes</button></div>
@@ -848,7 +854,8 @@ async function renderSettings() {
     const clamp = (v, a, b) => Math.min(b, Math.max(a, Math.round(+v || a)));
     try {
       await api.saveSettings({ demo_enabled: $('#sDemo').checked, demo_hours: clamp($('#sDemoH').value, 1, 720), default_max_devices: clamp($('#sMax').value, 1, 10),
-        revalidate_hours: clamp($('#sReval').value, 1, 168), offline_grace_hours: clamp($('#sGrace').value, 0, 720), donation_url: $('#sUrl').value.trim(), welcome_message: $('#sMsg').value.trim() });
+        revalidate_hours: clamp($('#sReval').value, 1, 168), offline_grace_hours: clamp($('#sGrace').value, 0, 720), donation_url: $('#sUrl').value.trim(), welcome_message: $('#sMsg').value.trim(),
+        ...($('#sTrialOne') ? { trial_one_per_device: $('#sTrialOne').checked, reseller_daily_trials: clamp($('#sTrialDaily').value, 0, 1000) } : {}) });
       toast('Ajustes guardados');
     } catch (err) { toast(err.message); }
     $('#sSave').disabled = false;
