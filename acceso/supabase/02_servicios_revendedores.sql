@@ -1,6 +1,4 @@
--- =====================================================================
 --  PARTE 2: varios servicios + revendedores con créditos
--- ---------------------------------------------------------------------
 --  Se ejecuta DESPUÉS de schema.sql. Se puede ejecutar varias veces.
 --
 --  Reglas de créditos:
@@ -11,11 +9,8 @@
 --    * Si un revendedor anula un código SIN USAR, se le devuelven
 --      los créditos y el código queda anulado para siempre.
 --      Si el código ya estaba en uso, se deshabilita sin devolución.
--- =====================================================================
 
--- ---------------------------------------------------------------------
 -- 1. TABLAS
--- ---------------------------------------------------------------------
 
 create table if not exists public.services (
   id         text primary key check (id ~ '^[a-z0-9-]{2,40}$'),
@@ -59,9 +54,7 @@ create table if not exists public.credit_ledger (
 );
 create index if not exists credit_ledger_user_idx on public.credit_ledger (user_id, created_at desc);
 
--- ---------------------------------------------------------------------
 -- 2. SEGURIDAD
--- ---------------------------------------------------------------------
 
 create or replace function public.is_reseller()
 returns boolean
@@ -107,9 +100,7 @@ create policy reseller_read on public.code_devices for select to authenticated
   using (public.is_reseller() and exists (
     select 1 from public.access_codes c where c.id = code_id and c.created_by = auth.uid()));
 
--- ---------------------------------------------------------------------
 -- 3. FUNCIONES
--- ---------------------------------------------------------------------
 
 -- Créditos que cuesta UN código de esa duración
 create or replace function public.credit_cost(p_hours integer)
@@ -411,9 +402,7 @@ begin
 end;
 $$;
 
--- ---------------------------------------------------------------------
 -- 4. PERMISOS DE EJECUCIÓN
--- ---------------------------------------------------------------------
 
 revoke all on function public.is_reseller()                                 from public, anon;
 revoke all on function public.credit_cost(integer)                          from public, anon;
