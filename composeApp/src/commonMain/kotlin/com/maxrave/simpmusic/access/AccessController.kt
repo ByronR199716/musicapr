@@ -177,7 +177,12 @@ class AccessController(
             loadSession()?.let { unlock(it) }
         } else {
             clearSession()
-            _state.value = AccessState.Locked(messageFor(r.reason, kind))
+            _state.value =
+                AccessState.Locked(
+                    // Una segunda prueba en el mismo teléfono: el servidor responde "expired" sin
+                    // fecha (un código vencido de verdad siempre trae su fecha de vencimiento).
+                    if (kind == "code" && r.reason == "expired" && r.expiresMs == null) TRIAL_USED else messageFor(r.reason, kind),
+                )
         }
     }
 
@@ -261,6 +266,8 @@ class AccessController(
         private const val K_REVALIDATE = "revalidate_h"
         private const val K_GRACE = "grace_h"
         private const val HOUR_MS = 3_600_000L
+        private const val TRIAL_USED =
+            "Ya usaste tu prueba gratis en este dispositivo. Para seguir escuchando, pide un código."
         private const val CLOCK_TOLERANCE_MS = 10 * 60_000L
 
         fun normalizeCode(raw: String) = raw.uppercase().filter { it in 'A'..'Z' || it in '0'..'9' }.take(32)
