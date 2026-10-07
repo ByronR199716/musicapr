@@ -208,6 +208,7 @@ declare
   v_row     public.access_codes;
   v_made    integer := 0;
   v_svc     public.services;
+  v_limit   integer;
 begin
   if not v_admin and not public.is_reseller() then
     raise exception 'No tienes permiso para generar códigos' using errcode = '42501';
@@ -216,8 +217,9 @@ begin
   if not found or (not v_svc.active and not v_admin) then
     raise exception 'Ese servicio no está disponible';
   end if;
-  if p_count is null or p_count < 1 or p_count > case when v_admin then 1000 else 100 end then
-    raise exception 'La cantidad debe estar entre 1 y %', case when v_admin then 1000 else 100 end;
+  v_limit := case when v_admin then 1000 else 100 end;
+  if p_count is null or p_count < 1 or p_count > v_limit then
+    raise exception 'La cantidad debe estar entre 1 y %', v_limit;
   end if;
   if p_duration_hours is null or p_duration_hours < 1 or p_duration_hours > 87600 then
     raise exception 'Duración inválida';
