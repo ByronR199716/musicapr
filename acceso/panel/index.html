@@ -732,7 +732,7 @@ async function renderServices() {
     <section class="panel">
       <div class="toolbar"><h2 class="section-title">Servicios</h2></div>
       <div class="scroll"><table>
-        <thead><tr><th>Nombre</th><th>ID</th><th>Enlace de descarga</th><th>Estado</th><th></th></tr></thead>
+        <thead><tr><th>Nombre</th><th>ID</th><th>Enlace móviles</th><th>Enlace TV</th><th>Estado</th><th></th></tr></thead>
         <tbody id="svRows"></tbody>
       </table></div>
       <div class="pager"><span>Un servicio inactivo no aparece para los revendedores, pero sus códigos ya vendidos siguen funcionando.</span></div>
@@ -742,7 +742,8 @@ async function renderServices() {
     $('#svRows').innerHTML = state.services.map(s => `<tr style="cursor:default">
       <td><input class="in" value="${esc(s.name)}" data-rename="${esc(s.id)}" maxlength="60" style="min-width:160px"></td>
       <td class="mono">${esc(s.id)}</td>
-      <td><input class="in" type="url" value="${esc(s.download_url || '')}" data-link="${esc(s.id)}" placeholder="https://…" style="min-width:240px"></td>
+      <td><input class="in" type="url" value="${esc(s.download_url || '')}" data-link="${esc(s.id)}" data-field="download_url" placeholder="https://…" style="min-width:220px"></td>
+      <td><input class="in" type="url" value="${esc(s.tv_download_url || '')}" data-link="${esc(s.id)}" data-field="tv_download_url" placeholder="Opcional (versión TV)" style="min-width:220px"></td>
       <td>${s.active ? '<span class="pill st-active">Activo</span>' : '<span class="pill st-disabled">Inactivo</span>'}</td>
       <td><button class="btn ghost sm" data-toggle="${esc(s.id)}">${s.active ? 'Desactivar' : 'Activar'}</button></td></tr>`).join('');
   };
@@ -767,7 +768,8 @@ async function renderServices() {
     if (l) {
       const url = l.value.trim();
       if (url && !/^https?:\/\//i.test(url)) { toast('El enlace debe empezar con https://'); return; }
-      try { await api.updateService(l.dataset.link, { download_url: url || null }); toast('Enlace guardado'); await reload(); } catch (err) { toast(err.message); }
+      const field = l.dataset.field === 'tv_download_url' ? 'tv_download_url' : 'download_url';
+      try { await api.updateService(l.dataset.link, { [field]: url || null }); toast('Enlace guardado'); await reload(); } catch (err) { toast(err.message); }
       return;
     }
     const i = e.target.closest('[data-rename]'); if (!i) return;
@@ -782,17 +784,27 @@ async function renderServices() {
 async function renderDownloads() {
   try { state.services = await api.services(); } catch {}
   const list = state.services.filter(s => s.active || isAdmin());
-  const cards = list.map(s => s.download_url ? `
+  const linksOf = s => [['Móviles', s.download_url], ['TV', s.tv_download_url]].filter(([, url]) => url);
+  const cards = list.map(s => {
+    const links = linksOf(s);
+    const head = `<div class="row" style="justify-content:space-between"><h2 class="section-title">${esc(s.name)}</h2>${s.active ? '' : '<span class="pill st-disabled">Inactivo</span>'}</div>`;
+    if (!links.length) return `
+    <div class="card">${head}<p class="sub">${isAdmin() ? 'Sin enlace. Agrégalo en la pestaña Servicios.' : 'Todavía no hay enlace de descarga.'}</p></div>`;
+    return `
     <div class="card">
-      <div class="row" style="justify-content:space-between"><h2 class="section-title">${esc(s.name)}</h2>${s.active ? '' : '<span class="pill st-disabled">Inactivo</span>'}</div>
-      <div class="mono sub" style="word-break:break-all">${esc(s.download_url)}</div>
-      <div class="row">
-        <button class="btn sm" data-copy="${esc(s.download_url)}">Copiar enlace</button>
-        <button class="btn ghost sm" data-copymsg="${esc(s.id)}">Copiar mensaje para el cliente</button>
-        <a class="btn ghost sm" href="${esc(s.download_url)}" target="_blank" rel="noopener" style="text-decoration:none">Descargar</a>
-      </div>
-    </div>` : `
-    <div class="card"><h2 class="section-title">${esc(s.name)}</h2><p class="sub">${isAdmin() ? 'Sin enlace. Agrégalo en la pestaña Servicios.' : 'Todavía no hay enlace de descarga.'}</p></div>`).join('');
+      ${head}
+      ${links.map(([label, url]) => `
+      <div style="display:grid;gap:8px">
+        <div class="sub"><b>${esc(label)}</b></div>
+        <div class="mono sub" style="word-break:break-all">${esc(url)}</div>
+        <div class="row">
+          <button class="btn sm" data-copy="${esc(url)}">Copiar enlace</button>
+          <a class="btn ghost sm" href="${esc(url)}" target="_blank" rel="noopener" style="text-decoration:none">Descargar</a>
+        </div>
+      </div>`).join('')}
+      <div class="row"><button class="btn ghost sm" data-copymsg="${esc(s.id)}">Copiar mensaje para el cliente</button></div>
+    </div>`;
+  }).join('');
   $('#view').innerHTML = `
   <div style="display:grid;gap:18px" id="dlList">
     <div><h2 class="section-title">Descargas</h2><p class="sub">Enlaces para instalar cada app. Compártelos con tus clientes junto con su código.${isAdmin() ? ' Los enlaces se cambian en la pestaña Servicios.' : ''}</p></div>
@@ -802,7 +814,9 @@ async function renderDownloads() {
     const c = e.target.closest('[data-copy]'); if (c) return copyText(c.dataset.copy);
     const m = e.target.closest('[data-copymsg]'); if (!m) return;
     const s = state.services.find(x => x.id === m.dataset.copymsg); if (!s) return;
-    copyText(`Descarga ${s.name} aquí:\n${s.download_url}\n\nInstálala, ábrela e ingresa tu código de acceso.`);
+    const links = linksOf(s);
+    const body = links.length === 1 ? links[0][1] : links.map(([label, url]) => `${label}: ${url}`).join('\n');
+    copyText(`Descarga ${s.name} aquí:\n${body}\n\nInstálala, ábrela e ingresa tu código de acceso.${links.length > 1 ? ' El mismo código sirve en el celular y en el TV.' : ''}`);
   });
 }
 
