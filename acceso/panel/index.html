@@ -732,7 +732,7 @@ async function renderServices() {
     <section class="panel">
       <div class="toolbar"><h2 class="section-title">Servicios</h2></div>
       <div class="scroll"><table>
-        <thead><tr><th>Nombre</th><th>ID</th><th>Enlace móviles</th><th>Enlace TV</th><th>Estado</th><th></th></tr></thead>
+        <thead><tr><th>Nombre</th><th>ID</th><th>Enlace móviles</th><th>Enlace TV</th><th>Enlace PC</th><th>Estado</th><th></th></tr></thead>
         <tbody id="svRows"></tbody>
       </table></div>
       <div class="pager"><span>Un servicio inactivo no aparece para los revendedores, pero sus códigos ya vendidos siguen funcionando.</span></div>
@@ -744,6 +744,7 @@ async function renderServices() {
       <td class="mono">${esc(s.id)}</td>
       <td><input class="in" type="url" value="${esc(s.download_url || '')}" data-link="${esc(s.id)}" data-field="download_url" placeholder="https://…" style="min-width:220px"></td>
       <td><input class="in" type="url" value="${esc(s.tv_download_url || '')}" data-link="${esc(s.id)}" data-field="tv_download_url" placeholder="Opcional (versión TV)" style="min-width:220px"></td>
+      <td><input class="in" type="url" value="${esc(s.pc_download_url || '')}" data-link="${esc(s.id)}" data-field="pc_download_url" placeholder="Opcional (Windows)" style="min-width:220px"></td>
       <td>${s.active ? '<span class="pill st-active">Activo</span>' : '<span class="pill st-disabled">Inactivo</span>'}</td>
       <td><button class="btn ghost sm" data-toggle="${esc(s.id)}">${s.active ? 'Desactivar' : 'Activar'}</button></td></tr>`).join('');
   };
@@ -768,7 +769,7 @@ async function renderServices() {
     if (l) {
       const url = l.value.trim();
       if (url && !/^https?:\/\//i.test(url)) { toast('El enlace debe empezar con https://'); return; }
-      const field = l.dataset.field === 'tv_download_url' ? 'tv_download_url' : 'download_url';
+      const field = ['tv_download_url', 'pc_download_url'].includes(l.dataset.field) ? l.dataset.field : 'download_url';
       try { await api.updateService(l.dataset.link, { [field]: url || null }); toast('Enlace guardado'); await reload(); } catch (err) { toast(err.message); }
       return;
     }
@@ -784,7 +785,7 @@ async function renderServices() {
 async function renderDownloads() {
   try { state.services = await api.services(); } catch {}
   const list = state.services.filter(s => s.active || isAdmin());
-  const linksOf = s => [['Móviles', s.download_url], ['TV', s.tv_download_url]].filter(([, url]) => url);
+  const linksOf = s => [['Móviles', s.download_url], ['TV', s.tv_download_url], ['PC (Windows)', s.pc_download_url]].filter(([, url]) => url);
   const cards = list.map(s => {
     const links = linksOf(s);
     const head = `<div class="row" style="justify-content:space-between"><h2 class="section-title">${esc(s.name)}</h2>${s.active ? '' : '<span class="pill st-disabled">Inactivo</span>'}</div>`;
@@ -816,7 +817,10 @@ async function renderDownloads() {
     const s = state.services.find(x => x.id === m.dataset.copymsg); if (!s) return;
     const links = linksOf(s);
     const body = links.length === 1 ? links[0][1] : links.map(([label, url]) => `${label}: ${url}`).join('\n');
-    copyText(`Descarga ${s.name} aquí:\n${body}\n\nInstálala, ábrela e ingresa tu código de acceso.${links.length > 1 ? ' El mismo código sirve en el celular y en el TV.' : ''}`);
+    const kinds = links.map(([label]) => ({ 'Móviles': 'el celular', 'TV': 'el TV', 'PC (Windows)': 'la computadora' })[label]);
+    const same = kinds.length > 1 ? ` El mismo código sirve en ${kinds.slice(0, -1).join(', ')} y en ${kinds[kinds.length - 1]}.` : '';
+    const pcNote = s.pc_download_url ? '\n\nEn Windows, si aparece "Windows protegió su PC", toca "Más información" y luego "Ejecutar de todas formas".' : '';
+    copyText(`Descarga ${s.name} aquí:\n${body}\n\nInstálala, ábrela e ingresa tu código de acceso.${same}${pcNote}`);
   });
 }
 
