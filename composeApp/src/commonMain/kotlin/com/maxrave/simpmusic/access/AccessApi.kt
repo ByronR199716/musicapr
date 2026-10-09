@@ -127,4 +127,24 @@ class AccessApi : AccessBackend {
             welcomeMessage = o.str("welcome_message").orEmpty(),
         )
     }
+
+    /** Última versión publicada desde el panel (tabla app_releases). Null si no hay ninguna. */
+    suspend fun appUpdate(service: String, platform: String): AppUpdateInfo? {
+        val o =
+            rpc(
+                "get_app_update",
+                buildJsonObject {
+                    put("p_service", service)
+                    put("p_platform", platform)
+                },
+            )
+        val versionCode = o["version_code"]?.jsonPrimitive?.intOrNull ?: return null
+        val url = o.str("url")?.takeIf { it.isNotBlank() } ?: return null
+        return AppUpdateInfo(
+            versionCode = versionCode,
+            minVersionCode = o["min_version_code"]?.jsonPrimitive?.intOrNull ?: 0,
+            url = url,
+            notes = o.str("notes").orEmpty(),
+        )
+    }
 }

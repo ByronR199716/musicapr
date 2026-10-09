@@ -126,6 +126,7 @@ fun AccessGate(
                 Box(Modifier.fillMaxSize()) {
                     content()
                     if (s.kind == "demo") DemoBadge(controller, s)
+                    AppUpdatePrompt()
                 }
             }
         }

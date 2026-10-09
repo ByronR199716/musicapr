@@ -39,6 +39,14 @@ jobs:
           done
           echo "$BASE_64_SIGNING_KEY" | base64 -d > simpmusic.jks
 
+      # versionCode siempre creciente (100 + número de compilación) para el aviso de nueva
+      # versión: el panel publica ese número y la app lo compara con el suyo.
+      - name: Versión de esta compilación
+        run: |
+          N=${{ github.run_number }}
+          sed -i "s/^version-code = .*/version-code = \"$((100 + N))\"/; s/^version-name = .*/version-name = \"2.3.$N\"/" gradle/libs.versions.toml
+          grep -E '^version-(code|name)' gradle/libs.versions.toml
+
       - name: Usar versión FOSS (sin Sentry ni Last.fm)
         run: |
           echo "" >> ./gradle.properties
@@ -68,6 +76,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: PremiumMusic build ${{ github.run_number }}
-          body: "APK compilado automáticamente. Para la mayoría de teléfonos usa el archivo que termina en universal-release.apk."
+          name: PremiumMusic 2.3.${{ github.run_number }}
+          body: "APK compilado automáticamente. Para la mayoría de teléfonos usa el archivo que termina en universal-release.apk. Número de versión para el panel: ${{ github.run_number }} + 100."
           files: salida/*.apk

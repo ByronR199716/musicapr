@@ -18,4 +18,7 @@ object AccessConfig {
     const val DEFAULT_DONATION_URL = "https://www.buymeacoffee.com/maxrave"
 
     const val APP_TITLE = "PremiumMusic"
+
+    /** Servicio en la tabla app_releases del panel (aviso de nueva versión). */
+    const val UPDATE_SERVICE = "premiummusic"
 }
