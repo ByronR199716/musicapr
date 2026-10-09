@@ -243,6 +243,10 @@ const api = {
   async services() { return must(await sb.from('services').select('*').order('created_at')); },
   async addService(id, name) { must(await sb.from('services').insert({ id, name })); },
   async updateService(id, patch) { must(await sb.from('services').update(patch).eq('id', id)); },
+  async releases() { return must(await sb.from('app_releases').select('*').order('service_id').order('platform')); },
+  async saveRelease(service_id, platform, patch) {
+    must(await sb.from('app_releases').upsert({ service_id, platform, ...patch, updated_at: new Date().toISOString() }));
+  },
   async listCodes({ q, status, service, page }) {
     const now = new Date().toISOString();
     let query = sb.from('access_codes').select('*, code_devices(count)', { count: 'exact' })
@@ -776,6 +780,81 @@ async function renderServices() {
     const i = e.target.closest('[data-rename]'); if (!i) return;
     const name = i.value.trim(); if (!name) return;
     try { await api.updateService(i.dataset.rename, { name }); toast('Nombre guardado'); await reload(); } catch (err) { toast(err.message); }
+  });
+  await renderReleases();
+}
+
+// ---------------------------------------------------------------------
+//  Actualizaciones dentro de las apps (tabla app_releases)
+// ---------------------------------------------------------------------
+const PLATFORM_LABEL = { android: 'Celular', tv: 'TV', pc: 'PC (Windows)' };
+
+async function renderReleases() {
+  const box = document.createElement('section');
+  box.className = 'panel';
+  box.style.marginTop = '22px';
+  $('#view').append(box);
+  let rows;
+  try { rows = await api.releases(); }
+  catch (err) {
+    box.innerHTML = `<div class="toolbar"><h2 class="section-title">Actualizaciones de las apps</h2></div>
+      <div class="pager"><span>Falta crear la tabla en el servidor (archivo 06_actualizaciones.sql). ${esc(err.message)}</span></div>`;
+    return;
+  }
+  const nameOf = id => (state.services.find(s => s.id === id) || {}).name || id;
+  box.innerHTML = `
+    <div class="toolbar"><h2 class="section-title">Actualizaciones de las apps</h2></div>
+    <div class="scroll"><table>
+      <thead><tr><th>App</th><th>Versión publicada</th><th>Mínima</th><th>Novedades</th><th>Enlace del APK</th><th></th></tr></thead>
+      <tbody>${rows.map(r => {
+        const k = `${esc(r.service_id)}|${esc(r.platform)}`;
+        return `<tr style="cursor:default" data-rel="${k}">
+        <td><b>${esc(nameOf(r.service_id))}</b><div class="help">${esc(PLATFORM_LABEL[r.platform] || r.platform)}</div></td>
+        <td><input class="in mono" type="number" min="0" step="1" data-f="version_code" value="${r.version_code || 0}" style="width:96px">
+          ${r.github_repo ? `<div><button class="btn ghost sm" data-latest="${esc(r.github_repo)}" type="button" style="margin-top:6px">Usar última compilación</button></div>` : ''}
+          <div class="help" data-info>${r.version_code ? '' : 'Aviso apagado'}</div></td>
+        <td><input class="in mono" type="number" min="0" step="1" data-f="min_version_code" value="${r.min_version_code || 0}" style="width:96px">
+          <div class="help">Si la del cliente es menor, debe actualizar sí o sí.</div></td>
+        <td><textarea class="in" rows="2" maxlength="300" data-f="notes" placeholder="Ej: Arreglado el bloqueo de anuncios" style="min-width:200px">${esc(r.notes || '')}</textarea></td>
+        <td><input class="in" type="url" data-f="download_url" value="${esc(r.download_url || '')}" style="min-width:240px"></td>
+        <td><button class="btn sm" data-save type="button">Publicar</button></td></tr>`;
+      }).join('') || '<tr><td colspan="6" class="empty">No hay apps configuradas.</td></tr>'}</tbody>
+    </table></div>
+    <div class="pager"><span>Al abrir la app, si su versión es menor que la publicada, el cliente ve "Nueva versión disponible" y la instala con un toque.
+      Pon la versión en 0 para apagar el aviso. "Usar última compilación" trae el número de la última compilación de GitHub (versión = compilación + 100).
+      Publica solo después de probar la versión.</span></div>`;
+
+  box.addEventListener('click', async e => {
+    const tr = e.target.closest('[data-rel]'); if (!tr) return;
+    const latest = e.target.closest('[data-latest]');
+    if (latest) {
+      latest.disabled = true;
+      try {
+        const res = await fetch(`https://api.github.com/repos/${latest.dataset.latest}/releases/latest`);
+        if (!res.ok) throw new Error('GitHub respondió ' + res.status);
+        const rel = await res.json();
+        const m = /(\d+)$/.exec(rel.tag_name || '');
+        if (!m) throw new Error('No se entiende la etiqueta ' + rel.tag_name);
+        $('[data-f="version_code"]', tr).value = 100 + Number(m[1]);
+        $('[data-info]', tr).textContent = `${rel.name || rel.tag_name} · ${new Date(rel.published_at).toLocaleString('es-EC')}`;
+        toast('Número listo. Revisa y toca Publicar.');
+      } catch (err) { toast(err.message); }
+      latest.disabled = false;
+      return;
+    }
+    if (!e.target.closest('[data-save]')) return;
+    const [service_id, platform] = tr.dataset.rel.split('|');
+    const val = f => $(`[data-f="${f}"]`, tr).value.trim();
+    const version_code = Math.max(0, parseInt(val('version_code'), 10) || 0);
+    const min_version_code = Math.max(0, parseInt(val('min_version_code'), 10) || 0);
+    const download_url = val('download_url');
+    if (download_url && !/^https:\/\//i.test(download_url)) { toast('El enlace debe empezar con https://'); return; }
+    if (min_version_code > version_code) { toast('La mínima no puede ser mayor que la publicada'); return; }
+    try {
+      await api.saveRelease(service_id, platform, { version_code, min_version_code, download_url: download_url || null, notes: val('notes') || null });
+      $('[data-info]', tr).textContent = version_code ? 'Publicada' : 'Aviso apagado';
+      toast(version_code ? 'Versión publicada' : 'Aviso apagado');
+    } catch (err) { toast(err.message); }
   });
 }
 
