@@ -30,7 +30,7 @@ import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
 
 /*
- * Aviso de nueva versión (YTPremium/PremiumMusic, 2026-10-09).
+ * Aviso de nueva versión (PremiumMusic, 2026-10-09; compilación de prueba 2.3.12).
  *
  * Al abrir la app pregunta al servidor get_app_update(servicio, plataforma). La versión se
  * publica desde el panel (pestaña Servicios > Actualizaciones). Si la instalada es menor:
