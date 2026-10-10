@@ -105,6 +105,11 @@ fun CreditScreen(
             fontSize = 13.sp,
         )
 
+        /*
+         * PremiumMusic (2026-10-09): ocultos por pedido del dueño hasta que avise.
+         * Autor original, descripción de SimpMusic, enlaces (web, blog, GitHub, issues,
+         * donaciones), aviso legal y copyright. Para volver a mostrarlos, quitar este comentario.
+         *
         // Developer - clickable, opens dev blog
         Text(
             text = stringResource(Res.string.maxrave_dev),
@@ -245,6 +250,8 @@ fun CreditScreen(
                     .padding(horizontal = 25.dp, vertical = 5.dp),
             textAlign = TextAlign.Start,
         )
+
+        */
 
         // Bottom spacing
         Spacer(modifier = Modifier.height(200.dp))
