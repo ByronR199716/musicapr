@@ -805,13 +805,13 @@ async function renderReleases() {
   box.innerHTML = `
     <div class="toolbar"><h2 class="section-title">Actualizaciones de las apps</h2></div>
     <div class="scroll"><table>
-      <thead><tr><th>App</th><th>Versión publicada</th><th>Mínima</th><th>Novedades</th><th>Enlace del APK</th><th></th></tr></thead>
+      <thead><tr><th>App</th><th>Versión publicada</th><th>Mínima</th><th>Novedades</th><th>Enlace de descarga</th><th></th></tr></thead>
       <tbody>${rows.map(r => {
         const k = `${esc(r.service_id)}|${esc(r.platform)}`;
         return `<tr style="cursor:default" data-rel="${k}">
         <td><b>${esc(nameOf(r.service_id))}</b><div class="help">${esc(PLATFORM_LABEL[r.platform] || r.platform)}</div></td>
         <td><input class="in mono" type="number" min="0" step="1" data-f="version_code" value="${r.version_code || 0}" style="width:96px">
-          ${r.github_repo ? `<div><button class="btn ghost sm" data-latest="${esc(r.github_repo)}" type="button" style="margin-top:6px">Usar última compilación</button></div>` : ''}
+          ${r.github_repo ? `<div><button class="btn ghost sm" data-latest="${esc(r.github_repo)}" data-platform="${esc(r.platform)}" type="button" style="margin-top:6px">Usar última compilación</button></div>` : ''}
           <div class="help" data-info>${r.version_code ? '' : 'Aviso apagado'}</div></td>
         <td><input class="in mono" type="number" min="0" step="1" data-f="min_version_code" value="${r.min_version_code || 0}" style="width:96px">
           <div class="help">Si la del cliente es menor, debe actualizar sí o sí.</div></td>
@@ -830,11 +830,15 @@ async function renderReleases() {
     if (latest) {
       latest.disabled = true;
       try {
-        const res = await fetch(`https://api.github.com/repos/${latest.dataset.latest}/releases/latest`);
+        // Celular y TV publican "build-N"; la PC publica "pc-build-N" en el mismo repo que el celular.
+        const pattern = latest.dataset.platform === 'pc' ? /^pc-build-(\d+)$/ : /^build-(\d+)$/;
+        const res = await fetch(`https://api.github.com/repos/${latest.dataset.latest}/releases?per_page=50`);
         if (!res.ok) throw new Error('GitHub respondió ' + res.status);
-        const rel = await res.json();
-        const m = /(\d+)$/.exec(rel.tag_name || '');
-        if (!m) throw new Error('No se entiende la etiqueta ' + rel.tag_name);
+        const rel = (await res.json())
+          .filter(r => !r.draft && pattern.test(r.tag_name || ''))
+          .sort((a, b) => Number(pattern.exec(b.tag_name)[1]) - Number(pattern.exec(a.tag_name)[1]))[0];
+        if (!rel) throw new Error('No hay compilaciones publicadas');
+        const m = pattern.exec(rel.tag_name);
         $('[data-f="version_code"]', tr).value = 100 + Number(m[1]);
         $('[data-info]', tr).textContent = `${rel.name || rel.tag_name} · ${new Date(rel.published_at).toLocaleString('es-EC')}`;
         toast('Número listo. Revisa y toca Publicar.');
