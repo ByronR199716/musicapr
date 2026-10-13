@@ -385,7 +385,8 @@ function renderLogin(error = '') {
 async function startShell() {
   try { state.services = await api.services(); } catch { state.services = []; }
   const active = state.services.filter(s => s.active);
-  if (!state.services.some(s => s.id === state.genService)) state.genService = (active[0] || state.services[0])?.id || '';
+  // Sin servicio elegido por defecto: hay que escogerlo cada vez (evita generar del servicio equivocado).
+  if (!state.services.some(s => s.id === state.genService)) state.genService = '';
   if (isAdmin()) { try { const us = await api.users(); state.userNames = Object.fromEntries(us.map(u => [u.user_id, u.display_name || u.email])); } catch {} }
   renderShell();
 }
@@ -448,9 +449,10 @@ async function renderStats() {
   } catch (e) { el.innerHTML = `<div class="err">No se pudieron cargar las cifras: ${esc(e.message)}</div>`; }
 }
 
-function serviceOptions(selected, { onlyActive, withAll } = {}) {
+function serviceOptions(selected, { onlyActive, withAll, placeholder } = {}) {
   const list = state.services.filter(s => !onlyActive || s.active);
   return (withAll ? `<option value="">Todos los servicios</option>` : '') +
+    (placeholder ? `<option value="" disabled ${selected ? '' : 'selected'}>${esc(placeholder)}</option>` : '') +
     list.map(s => `<option value="${esc(s.id)}" ${s.id === selected ? 'selected' : ''}>${esc(s.name)}${s.active ? '' : ' (inactivo)'}</option>`).join('');
 }
 
@@ -465,7 +467,7 @@ function renderCodes() {
       <div><h2 class="section-title" id="genTitle">Generar gift cards</h2>
       <p class="sub">La duración empieza a contar cuando el cliente activa el código por primera vez.${admin ? '' : ' 1 crédito = 1 mes. Hasta 7 días es gratis.'}</p></div>
       ${genServices.length ? '' : '<div class="err">No hay servicios activos. ' + (admin ? 'Crea uno en la pestaña Servicios.' : 'Habla con el administrador.') + '</div>'}
-      <label class="f">Servicio<select class="in" id="genService">${serviceOptions(state.genService, { onlyActive: !admin })}</select></label>
+      <label class="f">Servicio<select class="in" id="genService">${serviceOptions(state.genService, { onlyActive: !admin, placeholder: '‹‹ Seleccionar servicio ››' })}</select></label>
       <div class="f" style="display:grid;gap:6px"><span style="font-size:12.5px;font-weight:600;color:var(--muted)">Duración</span>
         <div class="presets" id="presets">${PRESETS.map(([h, l]) => `<button type="button" class="chip" data-h="${h}" aria-pressed="${state.preset === h}">${l}</button>`).join('')}</div>
         <div class="custom" id="customBox" ${state.preset === 0 ? '' : 'hidden'}>
@@ -519,13 +521,15 @@ function renderCodes() {
     e.preventDefault();
     const hours = currentHours(), n = Math.min(admin ? 1000 : 100, Math.max(1, +$('#genCount').value || 1));
     if (!hours) return toast('Indica una duración válida');
-    if (!state.genService) return toast('Elige un servicio');
+    if (!state.genService) { $('#genService').focus(); return toast('Primero elige el servicio'); }
     $('#genBtn').disabled = true;
     try {
       const max = admin ? Math.min(10, Math.max(1, +$('#genMax').value || 2)) : null;
       const made = await api.generate(state.genService, n, hours, max, $('#genNote').value.trim());
       state.generated = made; $('#genCards').innerHTML = genCardsHtml(); $('#copyAll').hidden = false;
       if (made[0]) state.batchKey = `${made[0].created_at}|${made[0].created_by || ''}`;
+      // Para la siguiente tanda hay que volver a elegir el servicio.
+      state.genService = ''; $('#genService').value = '';
       loadBatches();
       toast(`${made.length} código${made.length > 1 ? 's' : ''} generado${made.length > 1 ? 's' : ''}`);
       state.page = 0; loadRows(); renderStats(); await refreshCredits(); updateSummary();
