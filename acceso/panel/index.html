@@ -106,6 +106,10 @@ label.f { display: grid; gap: 5px; font-size: 12.5px; font-weight: 600; color: v
 .gcard::before { left: -6px; } .gcard::after { right: -6px; }
 .gcode { font-family: var(--f-mono); font-weight: 600; font-size: 15.5px; letter-spacing: .08em; }
 .gmeta { color: var(--muted); font-size: 12px; }
+.batch-row { display: grid; gap: 8px; }
+.batch-row select { width: 100%; }
+.batch-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 5px 6px 5px 11px; font-size: 13px; font-weight: 600; }
+.batch-chip button { border: 0; background: none; color: inherit; cursor: pointer; font-size: 15px; line-height: 1; padding: 0 4px; }
 .empty { color: var(--muted); font-size: 13.5px; padding: 18px; text-align: center; border: 1px dashed var(--line); border-radius: 9px; }
 
 /* Tabla */
@@ -247,11 +251,15 @@ const api = {
   async saveRelease(service_id, platform, patch) {
     must(await sb.from('app_releases').upsert({ service_id, platform, ...patch, updated_at: new Date().toISOString() }));
   },
-  async listCodes({ q, status, service, page }) {
+  async listCodes({ q, status, service, page, batch }) {
     const now = new Date().toISOString();
     let query = sb.from('access_codes').select('*, code_devices(count)', { count: 'exact' })
       .order('created_at', { ascending: false }).range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
     if (service) query = query.eq('service_id', service);
+    if (batch) {
+      query = query.eq('created_at', batch.created_at);
+      query = batch.created_by ? query.eq('created_by', batch.created_by) : query.is('created_by', null);
+    }
     if (status === 'unused') query = query.eq('disabled', false).is('activated_at', null);
     if (status === 'active') query = query.eq('disabled', false).gt('expires_at', now);
     if (status === 'expired') query = query.eq('disabled', false).lte('expires_at', now);
@@ -265,6 +273,27 @@ const api = {
     const { data, error, count } = await query;
     if (error) throw new Error(error.message);
     return { rows: data.map(r => ({ ...r, devices: r.code_devices?.[0]?.count ?? 0 })), total: count ?? 0 };
+  },
+  // Tandas: todos los códigos de una misma generación tienen el mismo created_at (y el mismo created_by).
+  async recentBatches() {
+    const LIMIT = 600;
+    const rows = must(await sb.from('access_codes')
+      .select('created_at, created_by, service_id, duration_hours, max_devices, note')
+      .order('created_at', { ascending: false }).limit(LIMIT));
+    const map = new Map();
+    for (const r of rows) {
+      const key = `${r.created_at}|${r.created_by || ''}`;
+      if (!map.has(key)) map.set(key, { key, created_at: r.created_at, created_by: r.created_by, service_id: r.service_id, duration_hours: r.duration_hours, note: r.note, count: 0 });
+      map.get(key).count++;
+    }
+    const list = [...map.values()];
+    if (rows.length === LIMIT && list.length > 1) list.pop(); // la más vieja pudo quedar incompleta
+    return list.slice(0, 25);
+  },
+  async batchCodes(b) {
+    let q = sb.from('access_codes').select('*').eq('created_at', b.created_at).order('code').limit(1000);
+    q = b.created_by ? q.eq('created_by', b.created_by) : q.is('created_by', null);
+    return must(await q);
   },
   async generate(service, n, hours, maxDevices, note) {
     return must(await sb.rpc('generate_codes', { p_service: service, p_count: n, p_duration_hours: hours, p_max_devices: maxDevices, p_note: note }));
@@ -306,7 +335,8 @@ const api = {
 //  Estado
 // ---------------------------------------------------------------------
 const state = { user: null, tab: 'codes', q: '', status: 'all', service: '', page: 0, demoPage: 0,
-  preset: 720, genService: '', generated: [], services: [], userNames: {}, open: null };
+  preset: 720, genService: '', generated: [], services: [], userNames: {}, open: null,
+  batches: [], batchKey: '', listBatch: null };
 const isAdmin = () => state.user?.role === 'admin';
 const PRESETS = [[6, '6 horas'], [24, '1 día'], [168, '7 días'], [720, '1 mes'], [1440, '2 meses'], [2160, '3 meses'], [4320, '6 meses'], [8640, '12 meses'], [0, 'Otra']];
 const svcName = id => state.services.find(s => s.id === id)?.name ?? id;
@@ -453,7 +483,11 @@ function renderCodes() {
     <div class="stub">
       <div class="stub-head"><h3 class="section-title" style="font-size:15px">Recién generados</h3>
         <button class="btn ghost sm" id="copyAll" ${state.generated.length ? '' : 'hidden'}>Copiar todos</button></div>
+      <div class="batch-row">
+        <label class="f">Tanda<select class="in" id="batchSel" aria-label="Elegir tanda"><option value="">Cargando…</option></select></label>
+      </div>
       <div class="cards" id="genCards">${genCardsHtml()}</div>
+      <div class="row"><button class="btn ghost sm" id="batchInList" type="button" ${state.batchKey ? '' : 'hidden'}>Ver esta tanda en la lista (estado de cada código)</button></div>
     </div>
   </section>
 
@@ -461,6 +495,7 @@ function renderCodes() {
     <div class="toolbar">
       <input class="in" id="search" type="search" placeholder="Buscar código o nota" value="${esc(state.q)}">
       <select class="in" id="svcFilter" style="max-width:220px">${serviceOptions(state.service, { withAll: true })}</select>
+      <span id="batchFilter"></span>
       <div class="presets" id="statusChips">${[['all', 'Todos'], ...Object.entries(STATUS)].map(([k, l]) => `<button class="chip" data-s="${k}" aria-pressed="${state.status === k}">${l}</button>`).join('')}</div>
     </div>
     <div class="scroll"><table>
@@ -470,7 +505,7 @@ function renderCodes() {
     <div class="pager" id="pager"></div>
   </section>`;
 
-  renderStats(); loadRows(); updateSummary();
+  renderStats(); loadRows(); updateSummary(); loadBatches(); renderBatchFilter();
 
   $('#genService').addEventListener('change', e => { state.genService = e.target.value; });
   $('#presets').addEventListener('click', e => {
@@ -490,6 +525,8 @@ function renderCodes() {
       const max = admin ? Math.min(10, Math.max(1, +$('#genMax').value || 2)) : null;
       const made = await api.generate(state.genService, n, hours, max, $('#genNote').value.trim());
       state.generated = made; $('#genCards').innerHTML = genCardsHtml(); $('#copyAll').hidden = false;
+      if (made[0]) state.batchKey = `${made[0].created_at}|${made[0].created_by || ''}`;
+      loadBatches();
       toast(`${made.length} código${made.length > 1 ? 's' : ''} generado${made.length > 1 ? 's' : ''}`);
       state.page = 0; loadRows(); renderStats(); await refreshCredits(); updateSummary();
     } catch (err) { toast(err.message); }
@@ -497,6 +534,15 @@ function renderCodes() {
   });
   $('#genCards').addEventListener('click', e => { const b = e.target.closest('[data-copy]'); if (b) copyText(b.dataset.copy); });
   $('#copyAll').addEventListener('click', () => copyText(state.generated.map(c => fmtCode(c.code)).join('\n')));
+  $('#batchSel').addEventListener('change', e => showBatch(e.target.value));
+  $('#batchInList').addEventListener('click', () => {
+    const b = state.batches.find(x => x.key === state.batchKey); if (!b) return;
+    state.listBatch = b; state.q = ''; state.status = 'all'; state.service = ''; state.page = 0;
+    $('#search').value = ''; $('#svcFilter').value = '';
+    document.querySelectorAll('#statusChips .chip').forEach(c => c.setAttribute('aria-pressed', c.dataset.s === 'all'));
+    renderBatchFilter(); loadRows();
+    $('#rows').closest('.panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
   let t; $('#search').addEventListener('input', e => { clearTimeout(t); t = setTimeout(() => { state.q = e.target.value; state.page = 0; loadRows(); }, 300); });
   $('#svcFilter').addEventListener('change', e => { state.service = e.target.value; state.page = 0; loadRows(); renderStats(); });
   $('#statusChips').addEventListener('click', e => {
@@ -521,6 +567,42 @@ function updateSummary() {
   }
   el.innerHTML = txt;
 }
+function batchLabel(b) {
+  const who = isAdmin() ? (b.created_by && state.userNames[b.created_by] ? ' · ' + state.userNames[b.created_by] : ' · Admin') : '';
+  return `${fmtDate(b.created_at)} · ${svcName(b.service_id)} · ${b.count} × ${fmtHours(b.duration_hours)}${b.note ? ' · ' + b.note : ''}${who}`;
+}
+async function loadBatches() {
+  const sel = $('#batchSel'); if (!sel) return;
+  try {
+    state.batches = await api.recentBatches();
+    if (!state.batches.length) { sel.innerHTML = '<option value="">Aún no hay tandas</option>'; return; }
+    if (!state.batches.some(b => b.key === state.batchKey)) state.batchKey = '';
+    // Al entrar al panel (sin nada recién generado) se muestra la última tanda.
+    const autoPick = !state.generated.length && !state.batchKey;
+    if (autoPick) state.batchKey = state.batches[0].key;
+    sel.innerHTML = (state.batchKey ? '' : '<option value="">Elige una tanda…</option>') +
+      state.batches.map((b, i) => `<option value="${esc(b.key)}" ${b.key === state.batchKey ? 'selected' : ''}>${i === 0 ? 'Última: ' : ''}${esc(batchLabel(b))}</option>`).join('');
+    if (autoPick) showBatch(state.batchKey);
+    $('#batchInList').hidden = !state.batchKey;
+  } catch (e) { sel.innerHTML = `<option value="">No se pudieron cargar las tandas</option>`; }
+}
+async function showBatch(key) {
+  state.batchKey = key;
+  $('#batchInList').hidden = !key;
+  const b = state.batches.find(x => x.key === key);
+  if (!b) { state.generated = []; $('#genCards').innerHTML = genCardsHtml(); $('#copyAll').hidden = true; return; }
+  $('#genCards').innerHTML = '<div class="empty">Cargando…</div>';
+  try {
+    state.generated = await api.batchCodes(b);
+    $('#genCards').innerHTML = genCardsHtml(); $('#copyAll').hidden = !state.generated.length;
+  } catch (e) { $('#genCards').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+function renderBatchFilter() {
+  const el = $('#batchFilter'); if (!el) return;
+  const b = state.listBatch;
+  el.innerHTML = b ? `<span class="batch-chip">Tanda ${esc(fmtDate(b.created_at))} (${b.count})<button type="button" aria-label="Quitar filtro de tanda" id="clearBatch">×</button></span>` : '';
+  if (b) $('#clearBatch').onclick = () => { state.listBatch = null; state.page = 0; renderBatchFilter(); loadRows(); };
+}
 function genCardsHtml() {
   if (!state.generated.length) return `<div class="empty">Los códigos que generes aparecerán aquí, listos para copiar y enviar.</div>`;
   return state.generated.map(c => `<div class="gcard"><div><div class="gcode">${fmtCode(c.code)}</div><div class="gmeta">${esc(svcName(c.service_id))} · ${fmtHours(c.duration_hours)} · ${c.max_devices} disp.${c.note ? ' · ' + esc(c.note) : ''}</div></div>
@@ -531,7 +613,7 @@ async function loadRows() {
   const tb = $('#rows'); if (!tb) return;
   const admin = isAdmin(), cols = admin ? 9 : 8;
   try {
-    const { rows, total } = await api.listCodes({ q: state.q, status: state.status, service: state.service, page: state.page });
+    const { rows, total } = await api.listCodes({ q: state.q, status: state.status, service: state.service, page: state.page, batch: state.listBatch });
     tb.innerHTML = rows.length ? rows.map(c => {
       const s = statusOf(c);
       return `<tr data-id="${c.id}" tabindex="0">
