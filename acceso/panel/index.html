@@ -143,6 +143,13 @@ td.note { max-width: 220px; overflow: hidden; text-overflow: ellipsis; color: va
 .kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 .dev { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; }
 .dev small { color: var(--muted); display: block; }
+.card.manual { display: flex; gap: 14px; align-items: flex-start; }
+.manual-list { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); align-items: start; }
+.manual-icon { flex: 0 0 44px; height: 54px; border-radius: 8px; background: var(--bad-soft); color: var(--bad); display: grid; place-items: center; font-weight: 800; font-size: 12px; letter-spacing: .04em; }
+.manual-body { flex: 1; min-width: 0; display: grid; gap: 8px; }
+.manual-title { font-weight: 700; font-size: 15px; overflow-wrap: anywhere; }
+.upload-grid { display: grid; gap: 12px; grid-template-columns: 1fr; }
+@media (min-width: 760px) { .upload-grid { grid-template-columns: 2fr 1fr; } }
 .confirm-scrim { position: fixed; inset: 0; background: rgba(10,10,20,.55); z-index: 30; display: grid; place-items: center; padding: 16px; }
 .confirm-card { width: min(400px, 100%); background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 22px; display: grid; gap: 14px; }
 .confirm-icon { width: 44px; height: 44px; border-radius: 50%; background: var(--bad-soft); color: var(--bad); display: grid; place-items: center; font-size: 22px; font-weight: 800; }
@@ -304,6 +311,31 @@ const api = {
   async generate(service, n, hours, maxDevices, note) {
     return must(await sb.rpc('generate_codes', { p_service: service, p_count: n, p_duration_hours: hours, p_max_devices: maxDevices, p_note: note }));
   },
+  // Manuales de instalación (07_manuales.sql): tabla manuals + bucket público "manuales".
+  async manuals() { return must(await sb.from('manuals').select('*').order('created_at', { ascending: false })); },
+  manualUrl(m, download) {
+    return sb.storage.from('manuales').getPublicUrl(m.file_path, download ? { download: m.file_name } : undefined).data.publicUrl;
+  },
+  async uploadManualFile(file) {
+    const path = `${Date.now()}-${slug(file.name.replace(/\.pdf$/i, '')) || 'manual'}.pdf`;
+    must(await sb.storage.from('manuales').upload(path, file, { contentType: 'application/pdf', upsert: false }));
+    return path;
+  },
+  async addManual(file, title, service_id) {
+    const file_path = await this.uploadManualFile(file);
+    const { error } = await sb.from('manuals').insert({ title, service_id: service_id || null, file_path, file_name: file.name, size_bytes: file.size });
+    if (error) { await sb.storage.from('manuales').remove([file_path]); throw new Error(error.message); }
+  },
+  async replaceManual(m, file) {
+    const file_path = await this.uploadManualFile(file);
+    const { error } = await sb.from('manuals').update({ file_path, file_name: file.name, size_bytes: file.size, created_at: new Date().toISOString() }).eq('id', m.id);
+    if (error) { await sb.storage.from('manuales').remove([file_path]); throw new Error(error.message); }
+    await sb.storage.from('manuales').remove([m.file_path]);
+  },
+  async deleteManual(m) {
+    must(await sb.from('manuals').delete().eq('id', m.id));
+    await sb.storage.from('manuales').remove([m.file_path]);
+  },
   async devices(codeId) { return must(await sb.from('code_devices').select('*').eq('code_id', codeId).order('first_seen')); },
   async freeDevice(codeId, deviceId) { must(await sb.from('code_devices').delete().eq('code_id', codeId).eq('device_id', deviceId)); },
   async extend(id, hours) { return must(await sb.rpc('admin_extend_code', { p_id: id, p_hours: hours })); },
@@ -399,8 +431,8 @@ async function startShell() {
 
 function renderShell() {
   const tabs = isAdmin()
-    ? [['codes', 'Códigos'], ['downloads', 'Descargas'], ['users', 'Usuarios'], ['services', 'Servicios'], ['demos', 'Demos'], ['settings', 'Ajustes']]
-    : [['codes', 'Códigos'], ['downloads', 'Descargas'], ['credits', 'Mis créditos']];
+    ? [['codes', 'Códigos'], ['downloads', 'Descargas'], ['manuals', 'Manuales'], ['users', 'Usuarios'], ['services', 'Servicios'], ['demos', 'Demos'], ['settings', 'Ajustes']]
+    : [['codes', 'Códigos'], ['downloads', 'Descargas'], ['manuals', 'Manuales'], ['credits', 'Mis créditos']];
   if (!tabs.some(t => t[0] === state.tab)) state.tab = 'codes';
   $('#app').innerHTML = `
   <header class="top"><div class="wrap">
@@ -420,7 +452,7 @@ function renderShell() {
 function renderTab() {
   document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', t.dataset.tab === state.tab));
   $('#drawerRoot').innerHTML = '';
-  ({ codes: renderCodes, users: renderUsers, services: renderServices, demos: renderDemos, settings: renderSettings, credits: renderMyCredits, downloads: renderDownloads })[state.tab]();
+  ({ codes: renderCodes, users: renderUsers, services: renderServices, demos: renderDemos, settings: renderSettings, credits: renderMyCredits, downloads: renderDownloads, manuals: renderManuals })[state.tab]();
 }
 
 function closeDrawer() { $('#drawerRoot').innerHTML = ''; state.open = null; }
@@ -1019,6 +1051,99 @@ async function renderDownloads() {
     const pcNote = s.pc_download_url ? '\n\nEn Windows, si aparece "Windows protegió su PC", toca "Más información" y luego "Ejecutar de todas formas".' : '';
     copyText(`Descarga ${s.name} aquí:\n${body}\n\nInstálala, ábrela e ingresa tu código de acceso.${same}${pcNote}`);
   });
+}
+
+// ---------------------------------------------------------------------
+//  Manuales de instalación (el admin sube PDFs; todos los ven y descargan)
+// ---------------------------------------------------------------------
+const MAX_MANUAL_MB = 20;
+function checkPdf(file) {
+  if (!file) return 'Elige un archivo PDF';
+  if (file.type !== 'application/pdf' && !/\.pdf$/i.test(file.name)) return 'Solo se pueden subir archivos PDF';
+  if (file.size > MAX_MANUAL_MB * 1024 * 1024) return `El PDF pesa más de ${MAX_MANUAL_MB} MB`;
+  return '';
+}
+const fmtSize = b => b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round((b || 0) / 1024))} KB`;
+
+async function renderManuals() {
+  const admin = isAdmin();
+  $('#view').innerHTML = `<div style="display:grid;gap:18px">
+    <div><h2 class="section-title">Manuales de instalación</h2>
+      <p class="sub">Guías en PDF para instalar las apps. Descárgalas o copia el enlace para enviárselo a tus clientes.${admin ? ' Solo tú puedes subir, reemplazar o eliminar manuales.' : ''}</p></div>
+    ${admin ? `<form class="card" id="manForm">
+      <h3 class="section-title" style="font-size:15px">Subir manual</h3>
+      <div class="upload-grid">
+        <label class="f">Título<input class="in" id="manTitle" maxlength="120" placeholder="Ej: Cómo instalar YTPremium en Android" required></label>
+        <label class="f">Servicio<select class="in" id="manSvc"><option value="">General (todos)</option>${serviceOptions('', {})}</select></label>
+      </div>
+      <label class="f">Archivo PDF (máx. ${MAX_MANUAL_MB} MB)<input class="in" id="manFile" type="file" accept="application/pdf,.pdf" required></label>
+      <div class="row"><button class="btn" id="manBtn" type="submit">Subir manual</button><span class="sub" id="manMsg"></span></div>
+    </form>` : ''}
+    <div id="manList" class="manual-list"><div class="empty">Cargando…</div></div>
+  </div>`;
+
+  if (admin) {
+    $('#manFile').addEventListener('change', e => {
+      const f = e.target.files[0];
+      if (f && !$('#manTitle').value.trim()) $('#manTitle').value = f.name.replace(/\.pdf$/i, '').replace(/[_-]+/g, ' ').trim().slice(0, 120);
+    });
+    $('#manForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const file = $('#manFile').files[0], title = $('#manTitle').value.trim();
+      const bad = checkPdf(file); if (bad) return toast(bad);
+      if (!title) return toast('Escribe un título');
+      $('#manBtn').disabled = true; $('#manMsg').textContent = 'Subiendo…';
+      try { await api.addManual(file, title, $('#manSvc').value); toast('Manual subido'); $('#manForm').reset(); loadManuals(); }
+      catch (err) { toast(err.message); }
+      $('#manBtn').disabled = false; $('#manMsg').textContent = '';
+    });
+  }
+  loadManuals();
+}
+
+async function loadManuals() {
+  const box = $('#manList'); if (!box) return;
+  const admin = isAdmin();
+  let rows;
+  try { rows = await api.manuals(); }
+  catch (err) {
+    box.innerHTML = `<div class="empty">${admin ? 'Falta preparar el servidor (archivo 07_manuales.sql en SQL Editor).' : 'Los manuales aún no están disponibles.'}<br><span class="sub">${esc(err.message)}</span></div>`;
+    return;
+  }
+  if (!rows.length) { box.innerHTML = `<div class="empty">${admin ? 'Aún no subes ningún manual.' : 'Todavía no hay manuales.'}</div>`; return; }
+  box.innerHTML = rows.map(m => `
+    <div class="card manual" data-id="${esc(m.id)}">
+      <div class="manual-icon" aria-hidden="true">PDF</div>
+      <div class="manual-body">
+        <div class="manual-title">${esc(m.title)}</div>
+        <div class="row" style="gap:8px">${m.service_id ? `<span class="svc-tag">${esc(svcName(m.service_id))}</span>` : '<span class="svc-tag">General</span>'}
+          <span class="sub">${esc(fmtSize(m.size_bytes))} · ${esc(fmtDate(m.created_at))}</span></div>
+        <div class="row">
+          <a class="btn sm" href="${esc(api.manualUrl(m, true))}" style="text-decoration:none">Descargar</a>
+          <a class="btn ghost sm" href="${esc(api.manualUrl(m))}" target="_blank" rel="noopener" style="text-decoration:none">Ver</a>
+          <button class="btn ghost sm" type="button" data-act="copy">Copiar enlace</button>
+          ${admin ? `<button class="btn ghost sm" type="button" data-act="replace">Reemplazar PDF</button>
+          <button class="btn ghost sm" type="button" data-act="delete" style="color:var(--bad)">Eliminar</button>` : ''}
+        </div>
+      </div>
+    </div>`).join('');
+  box.onclick = e => {
+    const b = e.target.closest('[data-act]'); if (!b) return;
+    const m = rows.find(r => r.id === b.closest('[data-id]').dataset.id); if (!m) return;
+    if (b.dataset.act === 'copy') return copyText(api.manualUrl(m));
+    if (b.dataset.act === 'delete') return confirmBox(null, `¿Eliminar "${esc(m.title)}"? Los revendedores ya no lo verán y el enlace dejará de funcionar.`, 'Sí, eliminar',
+      async () => { try { await api.deleteManual(m); toast('Manual eliminado'); loadManuals(); } catch (err) { toast(err.message); } });
+    if (b.dataset.act === 'replace') {
+      const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'application/pdf,.pdf';
+      inp.onchange = async () => {
+        const f = inp.files[0], bad = checkPdf(f); if (bad) return toast(bad);
+        b.disabled = true; b.textContent = 'Subiendo…';
+        try { await api.replaceManual(m, f); toast('Manual reemplazado (el enlace cambió)'); loadManuals(); }
+        catch (err) { toast(err.message); b.disabled = false; b.textContent = 'Reemplazar PDF'; }
+      };
+      inp.click();
+    }
+  };
 }
 
 // ---------------------------------------------------------------------
