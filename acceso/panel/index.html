@@ -1265,7 +1265,7 @@ async function renderSettings() {
       <p class="sub">Es lo que aparece al generar códigos (para ti y para los revendedores). Un plan desactivado no se puede generar; los códigos ya generados siguen funcionando.</p></div>
     <label class="switch"><input type="checkbox" id="sTrialOn" ${s.trial_plan_enabled ? 'checked' : ''}> Demo activada <span class="help">Un botón de demo con la duración que escribas abajo. Es gratis y cuenta para el límite diario de pruebas del revendedor.</span></label>
     <div class="fields">
-      <label class="f">Duración de la demo<input class="in" id="sTrialN" type="number" min="1" max="${trialDays ? 7 : 168}" value="${trialDays ? s.trial_hours / 24 : s.trial_hours}"></label>
+      <label class="f">Duración de la demo<input class="in" id="sTrialN" type="number" min="1" max="${trialDays ? 7 : 168}" step="1" value="${trialDays ? s.trial_hours / 24 : s.trial_hours}"></label>
       <label class="f">Unidad<select class="in" id="sTrialU"><option value="1" ${trialDays ? '' : 'selected'}>horas</option><option value="24" ${trialDays ? 'selected' : ''}>días</option></select><span class="help">Máximo 7 días.</span></label>
     </div>
     <div style="display:grid;gap:8px">
@@ -1304,7 +1304,14 @@ async function renderSettings() {
     const m = +r.dataset.months, b = clamp(r.querySelector('[data-pbonus]').value || 0, 0, 12);
     r.querySelector('[data-ppreview]').textContent = b ? `${fmtHours(m * 720)} + ${b} gratis = ${fmtHours((m + b) * 720)}` : '';
   });
-  if (plans) { $('#setForm').addEventListener('input', e => { if (e.target.matches('[data-pbonus]')) updatePlanPreviews(); }); updatePlanPreviews(); }
+  if (plans) {
+    $('#setForm').addEventListener('input', e => { if (e.target.matches('[data-pbonus]')) updatePlanPreviews(); });
+    updatePlanPreviews();
+    // El máximo de la demo depende de la unidad: 7 días o 168 horas (la misma semana).
+    const syncTrialMax = () => { $('#sTrialN').max = $('#sTrialU').value === '24' ? 7 : 168; };
+    syncTrialMax();
+    $('#sTrialU').addEventListener('change', syncTrialMax);
+  }
   $('#setForm').addEventListener('submit', async e => {
     e.preventDefault(); $('#sSave').disabled = true;
     try {
