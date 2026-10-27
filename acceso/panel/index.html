@@ -220,6 +220,8 @@ function fmtHours(h) {
 }
 // Igual que credit_cost() en el servidor
 const creditCost = h => h <= 168 ? 0 : Math.max(1, Math.round(h / 720));
+// " (incl. 1 mes de regalo)" para los códigos que traen regalo
+const bonusTag = c => c.bonus_months ? ` <span class="sub">(incl. ${plural(c.bonus_months, 'mes', 'meses')} de regalo)</span>` : '';
 function remaining(exp) {
   const ms = new Date(exp) - Date.now();
   if (ms <= 0) return 'vencido';
@@ -308,8 +310,20 @@ const api = {
     q = b.created_by ? q.eq('created_by', b.created_by) : q.is('created_by', null);
     return must(await q);
   },
-  async generate(service, n, hours, maxDevices, note) {
-    return must(await sb.rpc('generate_codes', { p_service: service, p_count: n, p_duration_hours: hours, p_max_devices: maxDevices, p_note: note }));
+  // applyPlan: undefined = servidor sin 08_planes.sql (no se envía); false = duración libre del admin (sin regalo).
+  async generate(service, n, hours, maxDevices, note, applyPlan) {
+    const args = { p_service: service, p_count: n, p_duration_hours: hours, p_max_devices: maxDevices, p_note: note };
+    if (applyPlan !== undefined) args.p_apply_plan = applyPlan;
+    return must(await sb.rpc('generate_codes', args));
+  },
+  // Planes, regalo y demo (08_planes.sql). Devuelve null si el SQL aún no se ejecutó.
+  async planOptions() {
+    const { data, error } = await sb.rpc('get_plan_options');
+    return error ? null : data;
+  },
+  async listPlans() { return must(await sb.from('plans').select('*').order('months')); },
+  async savePlans(rows) {
+    must(await sb.from('plans').upsert(rows.map(r => ({ ...r, updated_at: new Date().toISOString() })), { onConflict: 'months' }));
   },
   // Manuales de instalación (07_manuales.sql): tabla manuals + bucket público "manuales".
   async manuals() { return must(await sb.from('manuals').select('*').order('created_at', { ascending: false })); },
@@ -373,10 +387,27 @@ const api = {
 //  Estado
 // ---------------------------------------------------------------------
 const state = { user: null, tab: 'codes', q: '', status: 'all', service: '', page: 0, demoPage: 0,
-  preset: 720, genService: '', generated: [], services: [], userNames: {}, open: null,
-  batches: [], batchKey: '', listBatch: null };
+  preset: null, genService: '', generated: [], services: [], userNames: {}, open: null,
+  batches: [], batchKey: '', listBatch: null, opts: null };
 const isAdmin = () => state.user?.role === 'admin';
-const PRESETS = [[6, '6 horas'], [24, '1 día'], [168, '7 días'], [720, '1 mes'], [1440, '2 meses'], [2160, '3 meses'], [4320, '6 meses'], [8640, '12 meses'], [0, 'Otra']];
+// Opciones antiguas: solo se usan si el servidor aún no tiene 08_planes.sql.
+const LEGACY_PRESETS = [[6, '6 horas'], [24, '1 día'], [168, '7 días'], [720, '1 mes'], [1440, '2 meses'], [2160, '3 meses'], [4320, '6 meses'], [8640, '12 meses'], [0, 'Otra']];
+// Botones de duración del formulario: demo + planes activos (+ "Otra" para el admin).
+// Cada uno: { h: horas del plan, label, bonus: meses de regalo, demo }
+function presetList() {
+  const o = state.opts;
+  if (!o) return LEGACY_PRESETS.map(([h, label]) => ({ h, label, bonus: 0 }));
+  const list = [];
+  if (o.trial_enabled) list.push({ h: o.trial_hours, label: `Demo · ${fmtHours(o.trial_hours)}`, bonus: 0, demo: true });
+  for (const p of o.plans.filter(p => p.active)) list.push({ h: p.months * 720, label: fmtHours(p.months * 720), bonus: p.bonus_months });
+  if (isAdmin()) list.push({ h: 0, label: 'Otra', bonus: 0 });
+  return list;
+}
+async function loadPlanOptions() {
+  state.opts = await api.planOptions();
+  const list = presetList();
+  if (!list.some(p => p.h === state.preset)) state.preset = (list.find(p => !p.demo && p.h) || list[0])?.h ?? null;
+}
 const svcName = id => state.services.find(s => s.id === id)?.name ?? id;
 
 async function loadProfile() {
@@ -529,8 +560,8 @@ function renderCodes() {
       ${genServices.length ? '' : '<div class="err">No hay servicios activos. ' + (admin ? 'Crea uno en la pestaña Servicios.' : 'Habla con el administrador.') + '</div>'}
       <label class="f">Servicio<select class="in" id="genService">${serviceOptions(state.genService, { onlyActive: !admin, placeholder: '‹‹ Seleccionar servicio ››' })}</select></label>
       <div class="f" style="display:grid;gap:6px"><span style="font-size:12.5px;font-weight:600;color:var(--muted)">Duración</span>
-        <div class="presets" id="presets">${PRESETS.map(([h, l]) => `<button type="button" class="chip" data-h="${h}" aria-pressed="${state.preset === h}">${l}</button>`).join('')}</div>
-        <div class="custom" id="customBox" ${state.preset === 0 ? '' : 'hidden'}>
+        <div class="presets" id="presets"><span class="sub">Cargando planes…</span></div>
+        <div class="custom" id="customBox" hidden>
           <input class="in" id="customN" type="number" min="1" value="2" aria-label="Cantidad de tiempo">
           <select class="in" id="customU" aria-label="Unidad"><option value="1">horas</option><option value="24" selected>días</option><option value="720">meses</option></select>
         </div>
@@ -567,7 +598,8 @@ function renderCodes() {
     <div class="pager" id="pager"></div>
   </section>`;
 
-  renderStats(); loadRows(); updateSummary(); loadBatches(); renderBatchFilter();
+  renderStats(); loadRows(); loadBatches(); renderBatchFilter();
+  loadPlanOptions().then(renderPresets).catch(e => { $('#presets').innerHTML = `<span class="err">${esc(e.message)}</span>`; });
 
   $('#genService').addEventListener('change', e => { state.genService = e.target.value; });
   $('#presets').addEventListener('click', e => {
@@ -585,7 +617,9 @@ function renderCodes() {
     $('#genBtn').disabled = true;
     try {
       const max = admin ? Math.min(10, Math.max(1, +$('#genMax').value || 2)) : null;
-      const made = await api.generate(state.genService, n, hours, max, $('#genNote').value.trim());
+      // Con "Otra" el admin pide una duración libre: sin regalo del plan.
+      const applyPlan = state.opts ? state.preset !== 0 : undefined;
+      const made = await api.generate(state.genService, n, hours, max, $('#genNote').value.trim(), applyPlan);
       state.generated = made; $('#genCards').innerHTML = genCardsHtml(); $('#copyAll').hidden = false;
       if (made[0]) state.batchKey = `${made[0].created_at}|${made[0].created_by || ''}`;
       // Para la siguiente tanda hay que volver a elegir el servicio.
@@ -615,8 +649,21 @@ function renderCodes() {
   });
 }
 
+function renderPresets() {
+  const box = $('#presets'); if (!box) return;
+  const list = presetList();
+  if (!list.length) {
+    box.innerHTML = `<div class="err">No hay planes ni demo disponibles por ahora. ${isAdmin() ? 'Actívalos en Ajustes.' : 'Habla con el administrador.'}</div>`;
+    $('#genBtn').disabled = true; updateSummary(); return;
+  }
+  box.innerHTML = list.map(p => `<button type="button" class="chip" data-h="${p.h}" aria-pressed="${state.preset === p.h}">${esc(p.label)}${p.bonus ? ` <small>+${p.bonus} gratis</small>` : ''}</button>`).join('');
+  $('#customBox').hidden = state.preset !== 0;
+  $('#genBtn').disabled = !state.services.some(s => isAdmin() || s.active);
+  updateSummary();
+}
 function currentHours() {
   if (state.preset) return state.preset;
+  if (state.preset === null) return 0;
   const n = +$('#customN')?.value, u = +$('#customU')?.value;
   return n > 0 ? Math.round(n * u) : 0;
 }
@@ -624,7 +671,9 @@ function updateSummary() {
   const el = $('#genSummary'); if (!el) return;
   const h = currentHours(), n = +$('#genCount').value || 1;
   if (!h) { el.textContent = ''; return; }
+  const bonus = presetList().find(p => p.h === h && state.preset)?.bonus || 0;
   let txt = `${n} × ${fmtHours(h)}`;
+  if (bonus) txt += ` + ${plural(bonus, 'mes', 'meses')} de regalo = ${fmtHours(h + bonus * 720)} cada uno`;
   if (!isAdmin()) {
     const total = creditCost(h) * n, bal = state.user.credits ?? 0;
     txt += total ? ` · cuesta <span class="cost ${total > bal ? 'bad' : ''}">${plural(total, 'crédito', 'créditos')}</span> (tienes ${bal})` : ' · <span class="cost">gratis</span>';
@@ -669,7 +718,7 @@ function renderBatchFilter() {
 }
 function genCardsHtml() {
   if (!state.generated.length) return `<div class="empty">Los códigos que generes aparecerán aquí, listos para copiar y enviar.</div>`;
-  return state.generated.map(c => `<div class="gcard"><div><div class="gcode">${fmtCode(c.code)}</div><div class="gmeta">${esc(svcName(c.service_id))} · ${fmtHours(c.duration_hours)} · ${c.max_devices} disp.${c.note ? ' · ' + esc(c.note) : ''}</div></div>
+  return state.generated.map(c => `<div class="gcard"><div><div class="gcode">${fmtCode(c.code)}</div><div class="gmeta">${esc(svcName(c.service_id))} · ${fmtHours(c.duration_hours)}${bonusTag(c)} · ${c.max_devices} disp.${c.note ? ' · ' + esc(c.note) : ''}</div></div>
     <button class="btn ghost sm" data-copy="${fmtCode(c.code)}">Copiar</button></div>`).join('');
 }
 
@@ -684,7 +733,7 @@ async function loadRows() {
         <td class="mono" style="font-weight:600;letter-spacing:.05em">${fmtCode(c.code)}</td>
         <td><span class="svc-tag">${esc(svcName(c.service_id))}</span></td>
         <td>${pill(s)}</td>
-        <td>${fmtHours(c.duration_hours)}</td>
+        <td>${fmtHours(c.duration_hours)}${bonusTag(c)}</td>
         <td>${fmtDate(c.activated_at)}</td>
         <td>${c.expires_at ? `${fmtDate(c.expires_at)}<br><span class="sub">${s === 'active' ? remaining(c.expires_at) : ''}</span>` : '<span class="sub">al activarse</span>'}</td>
         <td><span class="slots">${Array.from({ length: c.max_devices }, (_, i) => `<i class="${i < c.devices ? 'on' : ''}"></i>`).join('')}</span>${c.devices}/${c.max_devices}</td>
@@ -712,7 +761,7 @@ async function openCode(code) {
   const d = drawer(`<div class="gcode" style="font-size:19px">${fmtCode(code.code)}</div>`, `<div class="row">${pill(s)}<span class="svc-tag">${esc(svcName(code.service_id))}</span></div>`, `
       <div class="row"><button class="btn ghost sm" data-copy="${fmtCode(code.code)}">Copiar código</button></div>
       <dl class="kv">
-        <dt>Duración</dt><dd>${fmtHours(code.duration_hours)}</dd>
+        <dt>Duración</dt><dd>${fmtHours(code.duration_hours)}${bonusTag(code)}</dd>
         <dt>Creado</dt><dd>${fmtDate(code.created_at)}</dd>
         ${admin ? `<dt>Creado por</dt><dd>${code.created_by && state.userNames[code.created_by] ? esc(state.userNames[code.created_by]) : 'Admin'}</dd>` : ''}
         ${code.credits_cost ? `<dt>Costó</dt><dd>${plural(code.credits_cost, 'crédito', 'créditos')}</dd>` : ''}
@@ -1207,12 +1256,33 @@ async function renderDemos() {
 async function renderSettings() {
   $('#view').innerHTML = `<div class="settings"><p class="sub">Cargando ajustes…</p></div>`;
   let s; try { s = await api.getSettings(); } catch (e) { $('#view').innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
+  // Planes y demo (08_planes.sql). Si el SQL aún no se ejecutó, la sección no aparece.
+  let plans = null;
+  if ('trial_hours' in s) { try { plans = await api.listPlans(); } catch { plans = null; } }
+  const trialDays = s.trial_hours % 24 === 0;
+  const plansHtml = plans ? `
+    <div><h2 class="section-title">Demo y planes</h2>
+      <p class="sub">Es lo que aparece al generar códigos (para ti y para los revendedores). Un plan desactivado no se puede generar; los códigos ya generados siguen funcionando.</p></div>
+    <label class="switch"><input type="checkbox" id="sTrialOn" ${s.trial_plan_enabled ? 'checked' : ''}> Demo activada <span class="help">Un botón de demo con la duración que escribas abajo. Es gratis y cuenta para el límite diario de pruebas del revendedor.</span></label>
+    <div class="fields">
+      <label class="f">Duración de la demo<input class="in" id="sTrialN" type="number" min="1" max="${trialDays ? 7 : 168}" value="${trialDays ? s.trial_hours / 24 : s.trial_hours}"></label>
+      <label class="f">Unidad<select class="in" id="sTrialU"><option value="1" ${trialDays ? '' : 'selected'}>horas</option><option value="24" ${trialDays ? 'selected' : ''}>días</option></select><span class="help">Máximo 7 días.</span></label>
+    </div>
+    <div style="display:grid;gap:8px">
+      <h3 class="section-title" style="font-size:14px">Membresías</h3>
+      ${plans.map(p => `<div class="plan-row" data-months="${p.months}" style="display:grid;grid-template-columns:minmax(120px,1fr) auto minmax(120px,160px);gap:12px;align-items:center">
+        <label class="switch" style="margin:0"><input type="checkbox" data-pactive ${p.active ? 'checked' : ''}> <b>${esc(fmtHours(p.months * 720))}</b></label>
+        <span class="sub" data-ppreview></span>
+        <label class="f" style="margin:0">Regalo (meses)<input class="in" data-pbonus type="number" min="0" max="12" value="${p.bonus_months}"></label>
+      </div>`).join('')}
+      <p class="help">Regalo: meses extra que recibe cada código de ese plan, sin hacerlo a mano. Pon 0 para no regalar. El revendedor paga solo los meses del plan; el regalo no se le descuenta.</p>
+    </div>` : '';
   $('#view').innerHTML = `
   <form class="settings" id="setForm">
     <div><h2 class="section-title">Ajustes</h2><p class="sub">Valen para todos los servicios. Los cambios llegan a las apps en su siguiente validación.</p></div>
-    <label class="switch"><input type="checkbox" id="sDemo" ${s.demo_enabled ? 'checked' : ''}> Permitir demos <span class="help">Botón "Probar gratis" en la pantalla de acceso.</span></label>
+    <label class="switch"><input type="checkbox" id="sDemo" ${s.demo_enabled ? 'checked' : ''}> Permitir demos dentro de la app <span class="help">Botón "Probar gratis" en la pantalla de acceso (hoy no se usa: las pruebas se dan con códigos, ver "Demo y planes").</span></label>
     <div class="fields">
-      <label class="f">Duración de la demo (horas)<input class="in" id="sDemoH" type="number" min="1" max="720" value="${s.demo_hours}"></label>
+      <label class="f">Duración de esa demo de la app (horas)<input class="in" id="sDemoH" type="number" min="1" max="720" value="${s.demo_hours}"></label>
       <label class="f">Dispositivos por código (por defecto)<input class="in" id="sMax" type="number" min="1" max="10" value="${s.default_max_devices}"><span class="help">Los revendedores siempre generan con este número.</span></label>
       <label class="f">Revalidar cada (horas)<input class="in" id="sReval" type="number" min="1" max="168" value="${s.revalidate_hours}"><span class="help">Cada cuánto la app confirma con el servidor.</span></label>
       <label class="f">Uso sin internet (horas)<input class="in" id="sGrace" type="number" min="0" max="720" value="${s.offline_grace_hours}"><span class="help">Tiempo máximo sin validar antes de pedir conexión.</span></label>
@@ -1223,17 +1293,31 @@ async function renderSettings() {
     <div class="fields">
       <label class="f">Pruebas al día por revendedor<input class="in" id="sTrialDaily" type="number" min="0" max="1000" value="${s.reseller_daily_trials}"><span class="help">Cuántos códigos de prueba puede generar cada revendedor por día (hora de Ecuador). 0 = ninguno. El admin no tiene límite.</span></label>
     </div>` : ''}
+    ${plansHtml}
     <label class="f">Enlace del botón "Donar"<input class="in" id="sUrl" type="url" value="${esc(s.donation_url)}"></label>
     <label class="f">Mensaje en la pantalla de acceso<textarea class="in" id="sMsg" rows="3" maxlength="400">${esc(s.welcome_message)}</textarea></label>
     <div class="row"><button class="btn" id="sSave">Guardar ajustes</button></div>
   </form>`;
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, Math.round(+v || a)));
+  const planRows = () => [...document.querySelectorAll('.plan-row')];
+  const updatePlanPreviews = () => planRows().forEach(r => {
+    const m = +r.dataset.months, b = clamp(r.querySelector('[data-pbonus]').value || 0, 0, 12);
+    r.querySelector('[data-ppreview]').textContent = b ? `${fmtHours(m * 720)} + ${b} gratis = ${fmtHours((m + b) * 720)}` : '';
+  });
+  if (plans) { $('#setForm').addEventListener('input', e => { if (e.target.matches('[data-pbonus]')) updatePlanPreviews(); }); updatePlanPreviews(); }
   $('#setForm').addEventListener('submit', async e => {
     e.preventDefault(); $('#sSave').disabled = true;
-    const clamp = (v, a, b) => Math.min(b, Math.max(a, Math.round(+v || a)));
     try {
+      if (plans) {
+        await api.savePlans(planRows().map(r => ({
+          months: +r.dataset.months,
+          active: r.querySelector('[data-pactive]').checked,
+          bonus_months: Math.min(12, Math.max(0, Math.round(+r.querySelector('[data-pbonus]').value || 0))) })));
+      }
       await api.saveSettings({ demo_enabled: $('#sDemo').checked, demo_hours: clamp($('#sDemoH').value, 1, 720), default_max_devices: clamp($('#sMax').value, 1, 10),
         revalidate_hours: clamp($('#sReval').value, 1, 168), offline_grace_hours: clamp($('#sGrace').value, 0, 720), donation_url: $('#sUrl').value.trim(), welcome_message: $('#sMsg').value.trim(),
-        ...($('#sTrialOne') ? { trial_one_per_device: $('#sTrialOne').checked, reseller_daily_trials: clamp($('#sTrialDaily').value, 0, 1000) } : {}) });
+        ...($('#sTrialOne') ? { trial_one_per_device: $('#sTrialOne').checked, reseller_daily_trials: clamp($('#sTrialDaily').value, 0, 1000) } : {}),
+        ...(plans ? { trial_plan_enabled: $('#sTrialOn').checked, trial_hours: clamp($('#sTrialN').value * $('#sTrialU').value, 1, 168) } : {}) });
       toast('Ajustes guardados');
     } catch (err) { toast(err.message); }
     $('#sSave').disabled = false;
