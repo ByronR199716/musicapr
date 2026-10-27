@@ -599,6 +599,9 @@ function renderCodes() {
   </section>`;
 
   renderStats(); loadRows(); loadBatches(); renderBatchFilter();
+  // "Dispositivos por código" arranca con el valor de Ajustes (antes quedaba fijo en 2)
+  if (admin) api.getSettings().then(st => { const el = $('#genMax'); if (el && !el.dataset.touched && st.default_max_devices) el.value = st.default_max_devices; }).catch(() => {});
+  if (admin) $('#genMax').addEventListener('input', e => { e.target.dataset.touched = '1'; });
   loadPlanOptions().then(renderPresets).catch(e => { $('#presets').innerHTML = `<span class="err">${esc(e.message)}</span>`; });
 
   $('#genService').addEventListener('change', e => { state.genService = e.target.value; });
@@ -616,7 +619,7 @@ function renderCodes() {
     if (!state.genService) { $('#genService').focus(); return toast('Primero elige el servicio'); }
     $('#genBtn').disabled = true;
     try {
-      const max = admin ? Math.min(10, Math.max(1, +$('#genMax').value || 2)) : null;
+      const max = admin ? Math.min(10, Math.max(1, +$('#genMax').value || 1)) : null;
       // Con "Otra" el admin pide una duración libre: sin regalo del plan.
       const applyPlan = state.opts ? state.preset !== 0 : undefined;
       const made = await api.generate(state.genService, n, hours, max, $('#genNote').value.trim(), applyPlan);
