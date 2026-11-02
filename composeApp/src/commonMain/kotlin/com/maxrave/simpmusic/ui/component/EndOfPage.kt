@@ -30,7 +30,7 @@ fun EndOfPage(withoutCredit: Boolean = false) {
     ) {
         if (!withoutCredit) {
             Text(
-                "${now().year} " + stringResource(Res.string.app_name) + " V2.3",
+                "${now().year} " + stringResource(Res.string.app_name) + " V2.5",
                 style = typo().bodySmall,
                 textAlign = TextAlign.Center,
                 modifier =
