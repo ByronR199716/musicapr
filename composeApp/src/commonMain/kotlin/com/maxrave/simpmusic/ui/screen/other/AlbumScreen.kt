@@ -79,7 +79,8 @@ import com.maxrave.simpmusic.expect.ui.toImageBitmap
 import com.maxrave.simpmusic.extension.artworkScrimBrush
 import com.maxrave.simpmusic.extension.getColorFromPalette
 import com.maxrave.simpmusic.extension.getScreenSizeInfo
-import com.maxrave.simpmusic.extension.toImmersiveBackground
+import com.maxrave.simpmusic.extension.mouseDragScroll
+import com.maxrave.simpmusic.extension.rememberPaletteColor
 import com.maxrave.simpmusic.ui.component.AddToPlaylistModalBottomSheet
 import com.maxrave.simpmusic.ui.component.CenterLoadingBox
 import com.maxrave.simpmusic.ui.component.DescriptionView
@@ -216,8 +217,8 @@ fun AlbumScreen(
     val screenInfo = getScreenSizeInfo()
     val isPortrait = screenInfo.wDP < screenInfo.hDP
     val dominantColor = uiState.colors.firstOrNull() ?: Color.Black
-    // Apple Music-style page background from the artwork's dominant tone (see UIExt.toImmersiveBackground).
-    val mutedPaletteBg = paletteState.palette.toImmersiveBackground()
+    // Apple Music-style page background from the artwork's dominant tone, held and faded (see UIExt.rememberPaletteColor).
+    val mutedPaletteBg = rememberPaletteColor(paletteState.palette)
 
     Crossfade(uiState.loadState) {
         when (it) {
@@ -268,7 +269,7 @@ fun AlbumScreen(
                                                             .memoryCachePolicy(CachePolicy.ENABLED)
                                                             .diskCacheKey(uiState.thumbnail)
                                                             .memoryCacheKey(uiState.thumbnail)
-                                                            .crossfade(false)
+                                                            .crossfade(550)
                                                             .build(),
                                                     placeholder = rememberHolderPainter(),
                                                     error = rememberHolderPainter(),
@@ -424,7 +425,7 @@ fun AlbumScreen(
                                                                 .memoryCachePolicy(CachePolicy.ENABLED)
                                                                 .diskCacheKey(uiState.thumbnail)
                                                                 .memoryCacheKey(uiState.thumbnail)
-                                                                .crossfade(false)
+                                                                .crossfade(550)
                                                                 .build(),
                                                         placeholder = rememberHolderPainter(),
                                                         error = rememberHolderPainter(),
@@ -903,9 +904,11 @@ fun AlbumScreen(
                                             vertical = 8.dp,
                                         ),
                                 )
+                                val otherVersionRowState = rememberLazyListState()
                                 LazyRow(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 12.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp).mouseDragScroll(otherVersionRowState),
+                                    state = otherVersionRowState,
                                 ) {
                                     items(uiState.otherVersion) { album ->
                                         HomeItemContentPlaylist(
@@ -1040,7 +1043,7 @@ fun AlbumScreen(
                 if (albumBottomSheetShow) {
                     PlaylistBottomSheet(
                         onDismiss = { albumBottomSheetShow = false },
-                        playlistId = browseId,
+                        playlistId = uiState.audioPlaylistId.ifEmpty { browseId },
                         playlistName = uiState.title,
                         isYourYouTubePlaylist = false,
                         onSaveToLocal = {},

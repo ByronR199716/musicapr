@@ -2,6 +2,7 @@ package com.maxrave.simpmusic.viewModel
 
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.lifecycle.viewModelScope
+import com.maxrave.common.AppIdentity
 import com.maxrave.common.Config
 import com.maxrave.common.Config.ALBUM_CLICK
 import com.maxrave.common.Config.DOWNLOAD_CACHE
@@ -10,6 +11,7 @@ import com.maxrave.common.Config.RECOVER_TRACK_QUEUE
 import com.maxrave.common.Config.SHARE
 import com.maxrave.common.Config.SONG_CLICK
 import com.maxrave.common.Config.VIDEO_CLICK
+import com.maxrave.common.LibraryChipType
 import com.maxrave.common.SELECTED_LANGUAGE
 import com.maxrave.common.STATUS_DONE
 import com.maxrave.domain.data.entities.AlbumEntity
@@ -26,6 +28,7 @@ import com.maxrave.domain.data.model.canvas.CanvasResult
 import com.maxrave.domain.data.model.download.DownloadProgress
 import com.maxrave.domain.data.model.intent.GenericIntent
 import com.maxrave.domain.data.model.metadata.Lyrics
+import com.maxrave.domain.data.model.promo.Promo
 import com.maxrave.domain.data.model.streams.TimeLine
 import com.maxrave.domain.data.model.update.UpdateData
 import com.maxrave.domain.data.player.GenericCastState
@@ -47,6 +50,7 @@ import com.maxrave.domain.mediaservice.handler.QueueData
 import com.maxrave.domain.mediaservice.handler.RepeatState
 import com.maxrave.domain.mediaservice.handler.SimpleMediaState
 import com.maxrave.domain.mediaservice.handler.SleepTimerState
+import com.maxrave.domain.mediaservice.handler.addToQueueBlock
 import com.maxrave.domain.repository.AlbumRepository
 import com.maxrave.domain.repository.CacheRepository
 import com.maxrave.domain.repository.LocalPlaylistRepository
@@ -56,6 +60,8 @@ import com.maxrave.domain.repository.SongRepository
 import com.maxrave.domain.repository.StreamRepository
 import com.maxrave.domain.repository.UpdateRepository
 import com.maxrave.domain.utils.Resource
+import com.maxrave.domain.utils.YouTubeLikeStatus
+import com.maxrave.domain.utils.isEndlessQueueId
 import com.maxrave.domain.utils.toListName
 import com.maxrave.domain.utils.toLyrics
 import com.maxrave.domain.utils.toLyricsEntity
@@ -66,9 +72,15 @@ import com.maxrave.logger.LogLevel
 import com.maxrave.logger.Logger
 import com.maxrave.simpmusic.Platform
 import com.maxrave.simpmusic.expect.getDownloadFolderPath
+import com.maxrave.simpmusic.expect.isOnUnmeteredNetwork
 import com.maxrave.simpmusic.expect.ui.toByteArray
 import com.maxrave.simpmusic.getPlatform
+import com.maxrave.simpmusic.utils.LyricsPromo
 import com.maxrave.simpmusic.utils.VersionManager
+import com.maxrave.simpmusic.utils.decodeLyricsPromos
+import com.maxrave.simpmusic.utils.decodePromos
+import com.maxrave.simpmusic.utils.shownPromoIds
+import com.maxrave.simpmusic.utils.withShownPromo
 import com.maxrave.simpmusic.viewModel.base.BaseViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -97,10 +109,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.jetbrains.compose.resources.getString
+import org.koin.core.component.inject
 import org.simpmusic.lastfm.completeLogin
 import simpmusic.composeapp.generated.resources.Res
+import simpmusic.composeapp.generated.resources.added_local_playlist
 import simpmusic.composeapp.generated.resources.added_to_queue
 import simpmusic.composeapp.generated.resources.added_to_youtube_liked
+import simpmusic.composeapp.generated.resources.disliked
 import simpmusic.composeapp.generated.resources.error
 import simpmusic.composeapp.generated.resources.lastfm_login_failed
 import simpmusic.composeapp.generated.resources.login_success
@@ -112,6 +127,8 @@ import simpmusic.composeapp.generated.resources.vote_submitted
 import java.io.FileOutputStream
 import kotlin.math.abs
 import kotlin.reflect.KClass
+import kotlin.time.Clock
+import kotlin.time.Duration.Companion.days
 
 // DataStore key for the kotlin-footguns star prompt. Cleared on every version bump,
 // so the ask comes back after an update - same policy as OPEN_APP_TIME.
@@ -133,6 +150,8 @@ class SharedViewModel(
     var isFirstMiniplayer: Boolean = false
     var isFirstSuggestions: Boolean = false
     var showedUpdateDialog: Boolean = false
+
+    private val appIdentity: AppIdentity by inject()
 
     private val _isCheckingUpdate = MutableStateFlow(false)
     val isCheckingUpdate: StateFlow<Boolean> = _isCheckingUpdate
@@ -234,8 +253,17 @@ class SharedViewModel(
         )
     val nowPlayingScreenData: StateFlow<NowPlayingScreenData> = _nowPlayingScreenData
 
-    private var _likeStatus = MutableStateFlow<Boolean>(false)
-    val likeStatus: StateFlow<Boolean> = _likeStatus
+    private var _likeStatus = MutableStateFlow(YouTubeLikeStatus.INDIFFERENT)
+    val likeStatus: StateFlow<YouTubeLikeStatus> = _likeStatus
+    private var likeStatusJob: Job? = null
+
+    // The track whose dislike request is still waiting for YouTube. An id rather than a flag, so the
+    // pending state belongs to that track only and the next one starts out dislikeable.
+    private val _dislikingVideoId = MutableStateFlow<String?>(null)
+    val isDislikePending: StateFlow<Boolean> =
+        combine(_dislikingVideoId, mediaPlayerHandler.nowPlaying) { pending, now ->
+            pending != null && pending == now?.mediaId
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     /**
      * Which body of the Apple Music player was open last — held by ENUM NAME so this class stays
@@ -309,7 +337,6 @@ class SharedViewModel(
             val checkGetVideoJob =
                 launch {
                     dataStoreManager.watchVideoInsteadOfPlayingAudio.collectLatest {
-                        Logger.w(tag, "GetVideo is $it")
                         _getVideo.value = it == TRUE
                     }
                 }
@@ -358,7 +385,6 @@ class SharedViewModel(
                 .distinctUntilChangedBy {
                     it.songEntity?.videoId
                 }.collectLatest { state ->
-                    Logger.w(tag, "NowPlayingState is $state")
                     canvasJob?.cancel()
                     _nowPlayingState.value = state
 
@@ -402,6 +428,11 @@ class SharedViewModel(
                                     mediaPlayerHandler.queueData.value
                                         ?.data
                                         ?.playlistName ?: "",
+                                isRadioQueue =
+                                    mediaPlayerHandler.queueData.value
+                                        ?.data
+                                        ?.playlistId
+                                        ?.isEndlessQueueId() == true,
                             )
                     }
                     state.mediaItem.let { now ->
@@ -541,9 +572,12 @@ class SharedViewModel(
                 }
             val playlistNameJob =
                 launch {
-                    mediaPlayerHandler.queueData.collectLatest {
+                    mediaPlayerHandler.queueData.collectLatest { queue ->
                         _nowPlayingScreenData.update {
-                            it.copy(playlistName = it.playlistName)
+                            it.copy(
+                                playlistName = queue?.data?.playlistName ?: "",
+                                isRadioQueue = queue?.data?.playlistId?.isEndlessQueueId() == true,
+                            )
                         }
                     }
                 }
@@ -610,14 +644,18 @@ class SharedViewModel(
     }
 
     private fun getLikeStatus(videoId: String?) {
-        viewModelScope.launch {
-            if (videoId != null) {
-                _likeStatus.value = false
-                songRepository.getLikeStatus(videoId).collectLatest { status ->
-                    _likeStatus.value = status
+        // Only the latest track may write: a slower reply for the previous track would otherwise
+        // land on this one.
+        likeStatusJob?.cancel()
+        likeStatusJob =
+            viewModelScope.launch {
+                if (videoId != null) {
+                    _likeStatus.value = YouTubeLikeStatus.INDIFFERENT
+                    songRepository.getLikeStatus(videoId).collectLatest { status ->
+                        _likeStatus.value = status
+                    }
                 }
             }
-        }
     }
 
     private fun getCanvas(
@@ -665,7 +703,7 @@ class SharedViewModel(
                         // Save canvas thumb url
                         data.canvasThumbUrl?.let { lyricsCanvasRepository.updateCanvasThumbUrl(videoId, it) }
                     } else {
-                        log("Get canvas miss from a source: ${response.message}", LogLevel.WARN)
+                        log("Get canvas miss from a source: ${response.message}")
                     }
                 }
             }
@@ -688,6 +726,63 @@ class SharedViewModel(
     }
 
     fun getString(key: String): String? = runBlocking { dataStoreManager.getString(key).first() }
+
+    /**
+     * The `promos` block the last config fetch saved, as it changes. Every DataStore write re-emits
+     * the whole settings file (the playback position is saved every few seconds), so only a change
+     * to this block's own text gets through.
+     */
+    fun cachedPromos(): Flow<List<Promo>> =
+        dataStoreManager
+            .getString(Promo.cacheKey(appIdentity.isDevBuild))
+            .distinctUntilChanged()
+            .map(::decodePromos)
+
+    /** The same block's entries placed under the lyrics, as it changes. */
+    fun cachedLyricsPromos(): Flow<List<LyricsPromo>> =
+        dataStoreManager
+            .getString(Promo.cacheKey(appIdentity.isDevBuild))
+            .distinctUntilChanged()
+            .map(::decodeLyricsPromos)
+
+    /** The ids of the launch banners this app version has already shown. */
+    suspend fun shownPromos(): Set<String> = shownPromosFlow().first()
+
+    /** The same ids as they change: the lyrics line stays on screen, and on two pages at once. */
+    fun shownPromosFlow(): Flow<Set<String>> =
+        dataStoreManager
+            .getString(Promo.shownKey(appIdentity.isDevBuild))
+            .distinctUntilChanged()
+            .map { shownPromoIds(stored = it, appVersion = VersionManager.getVersionName()) }
+
+    /** Each banner once per app version, however it was closed. */
+    fun markPromoShown(id: String) {
+        viewModelScope.launch {
+            val key = Promo.shownKey(appIdentity.isDevBuild)
+            dataStoreManager.putString(
+                key,
+                withShownPromo(dataStoreManager.getString(key).first(), VersionManager.getVersionName(), id),
+            )
+        }
+    }
+
+    // A Library tab asked for from outside the Library screen (a deep link); the screen selects it
+    // the next time it composes and clears the request.
+    private val _libraryTabRequest = MutableStateFlow<LibraryChipType?>(null)
+    val libraryTabRequest: StateFlow<LibraryChipType?> = _libraryTabRequest.asStateFlow()
+
+    fun requestLibraryTab(tab: LibraryChipType?) {
+        _libraryTabRequest.value = tab
+    }
+
+    // The song recognition sheet asked for from outside Search (simpmusic://recognize, the Quick
+    // Settings tile); Search opens it the next time it composes and clears the request.
+    private val _songRecognitionRequest = MutableStateFlow(false)
+    val songRecognitionRequest: StateFlow<Boolean> = _songRecognitionRequest.asStateFlow()
+
+    fun requestSongRecognition(requested: Boolean) {
+        _songRecognitionRequest.value = requested
+    }
 
     fun putString(
         key: String,
@@ -799,9 +894,27 @@ class SharedViewModel(
                         track.videoId,
                         lyricsData,
                     )
+                } else if (_nowPlayingState.value?.songEntity?.videoId == track.videoId) {
+                    // The end of every provider and of the offline cache: the one place the app
+                    // knows this song has no lyrics, which is what offers Add lyrics.
+                    _nowPlayingScreenData.update { it.copy(lyricsNotFound = true) }
                 }
             }
         }
+    }
+
+    /**
+     * Lyrics typed into Add lyrics take the offline lyrics' path: [updateLyrics] caches and shows
+     * them, and contributes them when Help build lyrics database is on. The cache write of its own
+     * keeps them for a song that ended while they were being typed, which [updateLyrics] skips.
+     */
+    fun saveUserLyrics(
+        videoId: String,
+        lyrics: Lyrics,
+    ) {
+        updateLyrics(videoId, (timeline.value.total / 1000).toInt(), lyrics, false, LyricsProvider.OFFLINE)
+        insertLyrics(lyrics.toLyricsEntity(videoId))
+        viewModelScope.launch { getAITranslationLyrics(videoId, lyrics) }
     }
 
     fun loadSharedMediaItem(videoId: String) {
@@ -1044,6 +1157,34 @@ class SharedViewModel(
         }
     }
 
+    private var smartDownloadsJob: Job? = null
+
+    /**
+     * Smart downloads, asked for by MainActivity.onStart: every time the app comes onto the screen,
+     * the only moment Android lets it start the download service. Not from init: the Glance widgets
+     * create this ViewModel with the app in the background. Opening the app many times a day stays
+     * cheap: three settings are read, the pass itself runs at most once a day (the run is stamped
+     * before it starts), and never twice at once.
+     */
+    fun runSmartDownloadsIfDue() {
+        if (getPlatform() != Platform.Android) return
+        if (smartDownloadsJob?.isActive == true) return
+        smartDownloadsJob =
+            viewModelScope.launch {
+                if (dataStoreManager.smartDownloadsEnabled.first() != TRUE) return@launch
+                if (dataStoreManager.localTrackingEnabled.first() != TRUE) return@launch
+                val nowMillis = Clock.System.now().toEpochMilliseconds()
+                val sinceLastRun = nowMillis - dataStoreManager.smartDownloadsLastRun.first()
+                // A last run stamped in the future (the clock was moved back) does not block the pass.
+                if (sinceLastRun in 0 until 1.days.inWholeMilliseconds) return@launch
+                if (!isOnUnmeteredNetwork()) return@launch
+                // Stamped first: a pass that fails is not retried at every launch, and a call arriving
+                // while this one runs finds the day already done.
+                dataStoreManager.setSmartDownloadsLastRun(nowMillis)
+                songRepository.runSmartDownloads(dataStoreManager.smartDownloadsCount.first())
+            }
+    }
+
     private fun getFormat(mediaId: String?) {
         if (mediaId != _format.value?.videoId && !mediaId.isNullOrEmpty()) {
             _format.value = null
@@ -1052,7 +1193,7 @@ class SharedViewModel(
             getFormatFlowJob =
                 viewModelScope.launch {
                     streamRepository.getFormatFlow(mediaId).cancellable().collectLatest { f ->
-                        Logger.w(tag, "Get format for $mediaId: $f")
+                        Logger.d(tag, "Get format for $mediaId: itag ${f?.itag}, expires ${f?.expiredTime}")
                         if (f != null) {
                             _format.emit(f)
                         } else {
@@ -1088,8 +1229,10 @@ class SharedViewModel(
     val updateResponse: StateFlow<UpdateData?> = _updateResponse
 
     fun checkForUpdate() {
+        // Raised before the coroutine starts, so Home's launch banner, which reads it right after
+        // startup, can never miss a check that is already under way but not yet marked.
+        _isCheckingUpdate.value = true
         viewModelScope.launch {
-            _isCheckingUpdate.value = true
             val updateChannel = dataStoreManager.updateChannel.first()
             dataStoreManager.putString(
                 "CheckForUpdateAt",
@@ -1126,6 +1269,10 @@ class SharedViewModel(
                     _isCheckingUpdate.value = false
                 }
             }
+        }.invokeOnCompletion {
+            // Also for a channel neither branch handles, and for a check that throws: the launch
+            // banner waits for this flag, so it must never stay raised.
+            _isCheckingUpdate.value = false
         }
     }
 
@@ -1157,6 +1304,17 @@ class SharedViewModel(
         _nowPlayingState.value = null
         mediaPlayerHandler.resetSongAndQueue()
         onUIEvent(UIEvent.Stop)
+    }
+
+    fun createLocalPlaylist(title: String) {
+        viewModelScope.launch {
+            localPlaylistRepository
+                .insertLocalPlaylist(
+                    LocalPlaylistEntity(title = title),
+                    getString(Res.string.added_local_playlist),
+                ).lastOrNull()
+            makeToast(getString(Res.string.added_local_playlist))
+        }
     }
 
     private fun loadPlaylistOrAlbum(index: Int? = null) {
@@ -1328,7 +1486,7 @@ class SharedViewModel(
                                 ).collect {
                                     when (it) {
                                         is Resource.Error -> {
-                                            log("Insert SimpMusic Translated Lyrics Error ${it.message}")
+                                            log("Insert SimpMusic Translated Lyrics Error ${it.message}", LogLevel.WARN)
                                         }
 
                                         is Resource.Success -> {
@@ -1403,6 +1561,9 @@ class SharedViewModel(
         // A live broadcast has nothing to sync lyrics to — the "duration" mpv reports for it is only
         // its seek window — so no provider is asked. Every caller comes through here.
         if (LiveStreamRegistry.isLive(song.videoId)) return
+        // A fetch in flight is not "no lyrics": switching the provider re-fetches the same song, and
+        // Add lyrics offered meanwhile could be saved over the lyrics the new provider finds.
+        _nowPlayingScreenData.update { it.copy(lyricsNotFound = false) }
         viewModelScope.launch {
             val videoId = song.videoId
             log("Get Lyrics From Format for $videoId", LogLevel.WARN)
@@ -1468,7 +1629,7 @@ class SharedViewModel(
         duration: Int,
     ) {
         lyricsCanvasRepository.getSimpMusicLyrics(videoId).collectLatest {
-            Logger.w(tag, "Get SimpMusic Lyrics for $videoId: $it")
+            Logger.d(tag, "Get SimpMusic Lyrics for $videoId: ${it::class.simpleName}")
             val data = it.data
             if (it is Resource.Success && data != null) {
                 Logger.d(tag, "Get SimpMusic Lyrics Success")
@@ -1634,7 +1795,7 @@ class SharedViewModel(
                         }
 
                         else -> {
-                            log("Get BetterLyrics Error: ${res.message}")
+                            log("Get BetterLyrics Error: ${res.message}", LogLevel.WARN)
                             getSimpMusicLyrics(
                                 song.videoId,
                                 song,
@@ -1689,7 +1850,7 @@ class SharedViewModel(
                 }
 
                 else -> {
-                    Logger.w(tag, "Get SimpMusic Translated Lyrics Error: ${response.message}")
+                    Logger.d(tag, "Get SimpMusic Translated Lyrics Error: ${response.message}")
                     getAITranslationLyrics(
                         videoId,
                         lyrics,
@@ -1834,7 +1995,10 @@ class SharedViewModel(
 
     fun addListToQueue(listTrack: ArrayList<Track>) {
         viewModelScope.launch {
-            if (listTrack.size == 1 && dataStoreManager.endlessQueue.first() == TRUE) {
+            // A radio, a mix or an Endless queue has no end to append to, so a single song (the swipe
+            // on a song row) goes right after the current one instead.
+            val endlessQueue = dataStoreManager.endlessQueue.first() == TRUE
+            if (listTrack.size == 1 && mediaPlayerHandler.queueData.value.addToQueueBlock(endlessQueue) != null) {
                 mediaPlayerHandler.playNext(listTrack.first())
                 makeToast(getString(Res.string.play_next))
             } else {
@@ -1848,7 +2012,7 @@ class SharedViewModel(
         viewModelScope.launch {
             val videoId = mediaPlayerHandler.nowPlaying.first()?.mediaId
             if (videoId != null) {
-                val like = likeStatus.value
+                val like = likeStatus.value == YouTubeLikeStatus.LIKE
                 if (!like) {
                     songRepository
                         .addToYouTubeLiked(
@@ -1878,6 +2042,33 @@ class SharedViewModel(
         }
     }
 
+    /**
+     * Dislikes [videoId], the track the sheet was opened for. While the request is out the action
+     * reads "Disliking…" and cannot be pressed again; a failure puts it back as it was.
+     */
+    fun addToYouTubeDisliked(videoId: String) {
+        if (videoId.isEmpty() || _dislikingVideoId.value == videoId) return
+        _dislikingVideoId.value = videoId
+        viewModelScope.launch {
+            try {
+                songRepository.addToYouTubeDisliked(videoId).collect { response ->
+                    if (response == 200) {
+                        // The reply can arrive after the player moved on; it belongs to the
+                        // track it was sent for, so it only shows if that track is still playing.
+                        if (mediaPlayerHandler.nowPlaying.value?.mediaId == videoId) {
+                            _likeStatus.value = YouTubeLikeStatus.DISLIKE
+                        }
+                        makeToast(getString(Res.string.disliked))
+                    } else {
+                        makeToast(getString(Res.string.error))
+                    }
+                }
+            } finally {
+                _dislikingVideoId.compareAndSet(videoId, null)
+            }
+        }
+    }
+
     fun getEnableLiquidGlass() = dataStoreManager.enableLiquidGlass
 
     fun getLocalTrackingEnabled() = dataStoreManager.localTrackingEnabled
@@ -1896,6 +2087,12 @@ class SharedViewModel(
     fun getLyricsStyle() = dataStoreManager.lyricsStyle
 
     fun getLyricsOffsetMs() = dataStoreManager.lyricsOffsetMs
+
+    fun setLyricsOffsetMs(offsetMs: Int) {
+        viewModelScope.launch {
+            dataStoreManager.setLyricsOffsetMs(offsetMs)
+        }
+    }
 
     fun setThemeMode(mode: String) {
         viewModelScope.launch {
@@ -1977,7 +2174,7 @@ class SharedViewModel(
                         track = track,
                         videoId = track.videoId,
                         path = path,
-                        isVideo = nowPlayingScreenData.value.isVideo,
+                        isVideo = nowPlayingScreenData.value.isVideo && getVideo.value,
                     ).collectLatest {
                         _downloadFileProgress.value = it
                     }
@@ -2185,6 +2382,8 @@ enum class LyricsProvider {
 
 data class NowPlayingScreenData(
     val playlistName: String,
+    /** The queue plays from a radio or mix id, so the top bar says Radio/Mix instead of Now Playing. */
+    val isRadioQueue: Boolean = false,
     val nowPlayingTitle: String,
     val artistName: String,
     val isVideo: Boolean,
@@ -2192,6 +2391,8 @@ data class NowPlayingScreenData(
     val thumbnailURL: String?,
     val canvasData: CanvasData? = null,
     val lyricsData: LyricsData? = null,
+    /** Every provider and the offline cache came back empty for this song; offers Add lyrics. */
+    val lyricsNotFound: Boolean = false,
     val songInfoData: SongInfoEntity? = null,
     val bitmap: ImageBitmap? = null,
 ) {

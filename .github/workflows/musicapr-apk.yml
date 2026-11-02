@@ -4,7 +4,7 @@ name: Compilar APK (PremiumMusic)
 on:
   workflow_dispatch:
   push:
-    branches: [ 'dev', 'main' ]
+    branches: [ 'dev', 'main', 'prueba' ]
     paths-ignore:
       - '**.md'
       - 'acceso/**'
@@ -73,9 +73,23 @@ jobs:
           path: salida/*.apk
 
       - name: Publicar en Releases (link de descarga directo)
+        if: github.ref_name != 'prueba'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
           name: PremiumMusic 2.3.${{ github.run_number }}
           body: "APK compilado automáticamente. Para la mayoría de teléfonos usa el archivo que termina en universal-release.apk. Número de versión para el panel: ${{ github.run_number }} + 100."
+          files: salida/*.apk
+
+      # Rama "prueba": APK de prueba (prerelease). No cambia el enlace fijo de los clientes
+      # (releases/latest) ni lo usa el botón "Usar última compilación" del panel (busca build-N).
+      - name: Publicar APK de PRUEBA
+        if: github.ref_name == 'prueba'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: prueba-${{ github.run_number }}
+          name: PremiumMusic PRUEBA 2.3.${{ github.run_number }}
+          body: "APK de PRUEBA (rama prueba). No es para clientes. Instala el que termina en universal-release.apk."
+          prerelease: true
+          make_latest: false
           files: salida/*.apk

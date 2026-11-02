@@ -154,7 +154,7 @@ fun CreditScreen(
             // Developer blog button
             TextButton(
                 onClick = {
-                    openUrl("https://maxrave.dev")
+                    openUrl("https://www.simpmusic.org/blogs")
                 },
                 modifier =
                     Modifier

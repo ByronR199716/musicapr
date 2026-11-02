@@ -358,7 +358,7 @@ private fun ListeningReceiptPaper(
             modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 10.dp, bottom = 4.dp),
         )
         Text(
-            text = "simpmusic.org",
+            text = "PremiumMusic",
             modifier = Modifier.fillMaxWidth(),
             style = mono.copy(fontSize = 14.sp, lineHeight = 18.sp, textAlign = TextAlign.Center),
         )

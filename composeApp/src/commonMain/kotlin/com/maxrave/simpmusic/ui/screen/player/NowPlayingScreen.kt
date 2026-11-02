@@ -62,6 +62,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.kmpalette.rememberPaletteState
 import com.maxrave.common.Config.MAIN_PLAYER
+import com.maxrave.common.MERGING_DATA_TYPE
+import com.maxrave.domain.extension.isVideo
 import com.maxrave.domain.manager.DataStoreManager
 import com.maxrave.domain.mediaservice.handler.MediaPlayerHandler
 import com.maxrave.logger.Logger
@@ -73,22 +75,28 @@ import com.maxrave.simpmusic.extension.KeepScreenOn
 import com.maxrave.simpmusic.extension.getColorFromPalette
 import com.maxrave.simpmusic.extension.getScreenSizeInfo
 import com.maxrave.simpmusic.extension.hsvToColor
+import com.maxrave.simpmusic.extension.parseTimestampToMilliseconds
 import com.maxrave.simpmusic.extension.rememberIsInPipMode
 import com.maxrave.simpmusic.getPlatform
+import com.maxrave.simpmusic.ui.component.AddLyricsSheet
 import com.maxrave.simpmusic.ui.component.AddToPlaylistModalBottomSheet
 import com.maxrave.simpmusic.ui.component.FullscreenLyricsContent
 import com.maxrave.simpmusic.ui.component.FullscreenLyricsSheet
+import com.maxrave.simpmusic.ui.component.CommentsBottomSheet
 import com.maxrave.simpmusic.ui.component.InfoPlayerBottomSheet
 import com.maxrave.domain.data.model.browse.album.Track
+import com.maxrave.domain.utils.YouTubeLikeStatus
 import com.maxrave.domain.utils.toSongEntity
 import com.maxrave.simpmusic.ui.component.NowPlayingBottomSheet
 import com.maxrave.simpmusic.ui.component.QueueBottomSheet
 import com.maxrave.simpmusic.ui.component.QueuePosition
 import com.maxrave.simpmusic.ui.component.VoteLyricsDialog
+import com.maxrave.simpmusic.ui.component.YouTubeDislikeState
 import com.maxrave.simpmusic.ui.icon.KeyboardArrowDown
 import com.maxrave.simpmusic.ui.icon.SimpIcons
 import com.maxrave.simpmusic.ui.navigation.destination.home.ListenTogetherDestination
 import com.maxrave.simpmusic.ui.navigation.destination.list.ArtistDestination
+import com.maxrave.simpmusic.ui.navigation.destination.login.LoginDestination
 import com.maxrave.simpmusic.ui.navigation.destination.player.FullscreenDestination
 import com.maxrave.simpmusic.ui.screen.player.content.NowPlayingContentActions
 import com.maxrave.simpmusic.ui.screen.player.content.NowPlayingContentAppleMusic
@@ -188,6 +196,7 @@ fun NowPlayingScreenContent(
     // lyric reports what the ear is hearing, and those two are what the offset separates.
     val lyricsOffsetMs by sharedViewModel.getLyricsOffsetMs().collectAsStateWithLifecycle(0)
     val likeStatus by sharedViewModel.likeStatus.collectAsStateWithLifecycle()
+    val isDislikePending by sharedViewModel.isDislikePending.collectAsStateWithLifecycle()
     val castState by sharedViewModel.castState.collectAsStateWithLifecycle()
     // Apple Music style's quality line under the progress bar — see NowPlayingContentState.toAudioQualityLabel.
     val formatState by sharedViewModel.format.collectAsStateWithLifecycle(initialValue = null)
@@ -214,6 +223,13 @@ fun NowPlayingScreenContent(
     // ⚠️ Use track.videoId (already prefix-stripped at MediaServiceHandlerImpl.kt:386).
     // Do NOT use mediaItem.mediaId — it carries the "Video" prefix for video items.
     val nowPlayingVideoId: String? = nowPlayingState?.track?.videoId
+    // The comments sheet reads the id off the media item instead: track is null whenever the item
+    // was not in the queue list at the moment it started, and comments exist for every track.
+    val commentsVideoId: String? =
+        nowPlayingState
+            ?.mediaItem
+            ?.let { if (it.isVideo()) it.mediaId.removePrefix(MERGING_DATA_TYPE.VIDEO) else it.mediaId }
+            ?.takeIf { it.isNotEmpty() }
     // currentOrderIndex() is a plain getter over the player, NOT Compose state, so it is read
     // inside this remember block — whose keys (the queue, and the track now playing) are exactly
     // the two things that can move the player's position. nowPlayingState is published FROM the
@@ -391,8 +407,16 @@ fun NowPlayingScreenContent(
     // A queue row's ⋯ in the Apple Music style, whose queue is a tab of this screen rather than a
     // sheet: its position and the track that was there. The other styles' queue sheet hosts its own.
     var queueMoreFor by remember { mutableStateOf<Pair<Int, Track>?>(null) }
+    // The song Add lyrics was opened for, as its id, title and artist. Typing a song's lyrics by hand
+    // can outlast the song, and Save must still go to this one; saveable, because a rotation or a
+    // theme change recreates the activity mid-typing.
+    var addLyricsFor by rememberSaveable { mutableStateOf<List<String>?>(null) }
 
     var showInfoBottomSheet by rememberSaveable {
+        mutableStateOf(false)
+    }
+
+    var showCommentsSheet by rememberSaveable {
         mutableStateOf(false)
     }
 
@@ -613,7 +637,7 @@ fun NowPlayingScreenContent(
             controllerState = controllerState,
             timelineState = timelineState,
             timelineFlow = sharedViewModel.timeline,
-            likeStatus = likeStatus,
+            likeStatus = likeStatus == YouTubeLikeStatus.LIKE,
             castState = castState,
             shouldShowVideo = shouldShowVideo,
             isUserLoggedIn = isUserLoggedIn,
@@ -683,8 +707,10 @@ fun NowPlayingScreenContent(
             onShowQueue = { showQueueBottomSheet = true },
             onShowInfo = { showInfoBottomSheet = true },
             onShowAddToPlaylist = { showAddToPlaylistDirectly = true },
+            onShowComments = { showCommentsSheet = true },
             onShowFullscreenLyrics = { showFullscreenLyrics = true },
             onShowVoteDialog = { showVoteDialog = true },
+            onLyricsOffsetChange = { sharedViewModel.setLyricsOffsetMs(it) },
             onEnterFullscreenVideo = {
                 onDismiss()
                 navController.navigate(FullscreenDestination)
@@ -713,7 +739,7 @@ fun NowPlayingScreenContent(
             val windowSize = LocalWindowInfo.current.containerSize
             val density = LocalDensity.current
             // DesktopApp makes the window transparent and clips its content to 12dp corners exactly
-            // when it draws the custom title bar (both gated on !isVM). A Popup is a layer of its own
+            // when it draws the custom title bar (both macOS-only). A Popup is a layer of its own
             // that clip never reaches, so the page rounds itself. getScreenSizeInfo() subtracts that
             // same bar, which makes the height difference the one signal commonMain can read.
             val windowIsRounded = windowSize.height > getScreenSizeInfo().hPX
@@ -804,6 +830,22 @@ fun NowPlayingScreenContent(
             song = null, // Auto set now playing
             setSleepTimerEnable = true,
             changeMainLyricsProviderEnable = true,
+            // Offered only once every provider and the offline cache came back empty for this song.
+            onAddLyrics =
+                nowPlayingState
+                    ?.songEntity
+                    ?.takeIf { screenDataState.lyricsNotFound && screenDataState.lyricsData == null }
+                    ?.let { song ->
+                        { addLyricsFor = arrayListOf(song.videoId, song.title, song.artistName?.joinToString(", ").orEmpty()) }
+                    },
+            youTubeDislike =
+                when {
+                    !isUserLoggedIn -> null
+                    likeStatus == YouTubeLikeStatus.DISLIKE -> YouTubeDislikeState.DISLIKED
+                    isDislikePending -> YouTubeDislikeState.DISLIKING
+                    else -> YouTubeDislikeState.DISLIKE
+                },
+            onYouTubeDislike = { videoId -> sharedViewModel.addToYouTubeDisliked(videoId) },
         )
     }
 
@@ -835,6 +877,42 @@ fun NowPlayingScreenContent(
             onDismiss = {
                 showInfoBottomSheet = false
             },
+        )
+    }
+
+    if (showCommentsSheet) {
+        val videoId = commentsVideoId
+        if (videoId == null) {
+            // Nothing is playing: drop the request rather than open it on whatever plays next.
+            LaunchedEffect(Unit) { showCommentsSheet = false }
+        } else {
+            CommentsBottomSheet(
+                videoId = videoId,
+                isLoggedIn = isUserLoggedIn,
+                onTimestamp = { raw ->
+                    // The rule the Info card's description follows: only a time inside the track seeks.
+                    val timestamp = parseTimestampToMilliseconds(raw)
+                    val total = timelineState.total
+                    if (timestamp != 0.0 && timestamp < total) {
+                        sharedViewModel.onUIEvent(UIEvent.UpdateProgress(((timestamp * 100) / total).toFloat()))
+                    }
+                },
+                onLogIn = {
+                    showCommentsSheet = false
+                    onDismiss()
+                    navController.navigate(LoginDestination)
+                },
+                onDismiss = { showCommentsSheet = false },
+            )
+        }
+    }
+
+    addLyricsFor?.let { (videoId, title, artist) ->
+        AddLyricsSheet(
+            songTitle = title,
+            artist = artist,
+            onSave = { lyrics -> sharedViewModel.saveUserLyrics(videoId, lyrics) },
+            onDismiss = { addLyricsFor = null },
         )
     }
 

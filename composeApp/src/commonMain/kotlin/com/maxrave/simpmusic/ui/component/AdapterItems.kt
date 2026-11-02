@@ -1,6 +1,9 @@
 package com.maxrave.simpmusic.ui.component
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -8,14 +11,20 @@ import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.gestures.snapping.SnapLayoutInfoProvider
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -34,10 +43,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,7 +57,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -78,6 +95,7 @@ import com.maxrave.domain.data.model.mood.moodmoments.Item
 import com.maxrave.domain.data.model.searchResult.albums.AlbumsResult
 import com.maxrave.domain.data.model.searchResult.playlists.PlaylistsResult
 import com.maxrave.domain.data.model.searchResult.songs.Artist
+import com.maxrave.domain.data.model.streams.YouTubeWatchEndpoint
 import com.maxrave.domain.data.type.ChartItem
 import com.maxrave.domain.data.type.HomeContentType
 import com.maxrave.domain.data.type.MonthlyRecapItem
@@ -87,15 +105,18 @@ import com.maxrave.domain.utils.connectArtists
 import com.maxrave.domain.utils.toListName
 import com.maxrave.domain.utils.toSongEntity
 import com.maxrave.domain.utils.toTrack
-import com.maxrave.logger.Logger
 import com.maxrave.simpmusic.Platform
 import com.maxrave.simpmusic.expect.ui.HorizontalScrollBar
+import com.maxrave.simpmusic.extension.getStringBlocking
+import com.maxrave.simpmusic.extension.mouseDragScroll
 import com.maxrave.simpmusic.getPlatform
 import com.maxrave.simpmusic.ui.navigation.destination.list.AlbumDestination
 import com.maxrave.simpmusic.ui.navigation.destination.list.ArtistDestination
 import com.maxrave.simpmusic.ui.navigation.destination.list.BrowseDestination
 import com.maxrave.simpmusic.ui.navigation.destination.list.PlaylistDestination
 import com.maxrave.simpmusic.ui.navigation.destination.list.PodcastDestination
+import com.maxrave.simpmusic.ui.icon.PlayArrow
+import com.maxrave.simpmusic.ui.icon.SimpIcons
 import com.maxrave.simpmusic.ui.theme.LocalForceDarkText
 import com.maxrave.simpmusic.ui.theme.typo
 import com.maxrave.simpmusic.viewModel.HomeViewModel
@@ -109,7 +130,9 @@ import simpmusic.composeapp.generated.resources.app_name
 import simpmusic.composeapp.generated.resources.live_badge
 import simpmusic.composeapp.generated.resources.description
 import simpmusic.composeapp.generated.resources.more
+import simpmusic.composeapp.generated.resources.play_all
 import simpmusic.composeapp.generated.resources.playlist
+import simpmusic.composeapp.generated.resources.radio
 import simpmusic.composeapp.generated.resources.subscribers
 import simpmusic.composeapp.generated.resources.wrapped_recap_subtitle
 import simpmusic.composeapp.generated.resources.you
@@ -135,89 +158,10 @@ fun HomeItem(
         )
     }
 
-    val channelId = data.channelId
-    val moreEndpoint = data.moreEndpoint
     Column {
-        Row(
-            modifier =
-                if (channelId != null) {
-                    Modifier
-                        .focusable(true)
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable {
-                            navController.navigate(
-                                ArtistDestination(
-                                    channelId = channelId,
-                                ),
-                            )
-                        }
-                } else if (moreEndpoint != null) {
-                    // The section title carries the same endpoint as its "More" button, as on the web.
-                    Modifier
-                        .focusable(true)
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { navController.navigateToMoreEndpoint(moreEndpoint, data.title) }
-                } else {
-                    Modifier
-                },
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            AnimatedVisibility(
-                visible = (data.thumbnail?.lastOrNull() != null),
-                modifier = Modifier.align(Alignment.CenterVertically),
-            ) {
-                AsyncImage(
-                    model =
-                        ImageRequest
-                            .Builder(LocalPlatformContext.current)
-                            .data(data.thumbnail?.lastOrNull()?.url)
-                            .diskCachePolicy(CachePolicy.ENABLED)
-                            .diskCacheKey(data.thumbnail?.lastOrNull()?.url)
-                            .crossfade(550)
-                            .build(),
-                    contentDescription = "",
-                    placeholder = rememberHolderPainter(),
-                    error = rememberHolderPainter(),
-                    modifier =
-                        Modifier
-                            .size(36.dp)
-                            .clip(
-                                CircleShape,
-                            ),
-                )
-            }
-            Column(
-                Modifier
-                    .weight(1f)
-                    .padding(start = 10.dp),
-            ) {
-                AnimatedVisibility(visible = (data.subtitle != null && data.subtitle != "")) {
-                    Text(
-                        text = data.subtitle ?: "",
-                        style = typo().bodySmall,
-                    )
-                }
-                Text(
-                    text = data.title,
-                    style = typo().headlineMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            if (moreEndpoint != null) {
-                TextButton(
-                    onClick = { navController.navigateToMoreEndpoint(moreEndpoint, data.title) },
-                    colors =
-                        ButtonDefaults
-                            .textButtonColors()
-                            .copy(contentColor = MaterialTheme.colorScheme.onSurface),
-                ) {
-                    Text(stringResource(Res.string.more), style = typo().bodySmall)
-                }
-            }
-        }
+        HomeSectionHeader(data = data, navController = navController, onPlayAll = { homeViewModel.playAll(data) })
         LazyRow(
+            modifier = Modifier.mouseDragScroll(lazyListState, snapperFlingBehavior),
             state = lazyListState,
             flingBehavior = snapperFlingBehavior,
         ) {
@@ -244,6 +188,127 @@ fun HomeItem(
                 scrollState = lazyListState,
                 flingBehavior = snapperFlingBehavior,
             )
+        }
+    }
+}
+
+/**
+ * A Home shelf's header: the optional avatar, strapline and title, plus the one button YouTube
+ * sends with the shelf — "More" (a browse page) or "Play all" (a watch endpoint). Every shelf
+ * style uses it, so the two buttons look and behave the same everywhere.
+ */
+@Composable
+fun HomeSectionHeader(
+    data: HomeItem,
+    navController: NavController,
+    onPlayAll: () -> Unit,
+) {
+    val channelId = data.channelId
+    val moreEndpoint = data.moreEndpoint
+    Row(
+        modifier =
+            if (channelId != null) {
+                Modifier
+                    .focusable(true)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable {
+                        navController.navigate(
+                            ArtistDestination(
+                                channelId = channelId,
+                            ),
+                        )
+                    }
+            } else if (moreEndpoint != null) {
+                // The section title carries the same endpoint as its "More" button, as on the web.
+                Modifier
+                    .focusable(true)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { navController.navigateToMoreEndpoint(moreEndpoint, data.title) }
+            } else {
+                Modifier
+            },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AnimatedVisibility(
+            visible = (data.thumbnail?.lastOrNull() != null),
+            modifier = Modifier.align(Alignment.CenterVertically),
+        ) {
+            AsyncImage(
+                model =
+                    ImageRequest
+                        .Builder(LocalPlatformContext.current)
+                        .data(data.thumbnail?.lastOrNull()?.url)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .diskCacheKey(data.thumbnail?.lastOrNull()?.url)
+                        .crossfade(550)
+                        .build(),
+                contentDescription = "",
+                placeholder = rememberHolderPainter(),
+                error = rememberHolderPainter(),
+                // The gap belongs to the picture: a shelf without one starts its title on the
+                // section's edge, where Quick picks and the other headers start theirs.
+                modifier =
+                    Modifier
+                        .padding(end = 10.dp)
+                        .size(36.dp)
+                        .clip(
+                            CircleShape,
+                        ),
+            )
+        }
+        Column(
+            Modifier
+                .weight(1f),
+        ) {
+            AnimatedVisibility(visible = (data.subtitle != null && data.subtitle != "")) {
+                Text(
+                    text = data.subtitle ?: "",
+                    style = typo().bodySmall,
+                )
+            }
+            Text(
+                text = data.title,
+                style = typo().headlineMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        if (moreEndpoint != null) {
+            SectionHeaderButton(
+                text = stringResource(Res.string.more),
+                onClick = { navController.navigateToMoreEndpoint(moreEndpoint, data.title) },
+            )
+        } else if (data.playAllEndpoint != null) {
+            SectionHeaderButton(text = stringResource(Res.string.play_all), onClick = onPlayAll)
+        }
+    }
+}
+
+/**
+ * The "More" / "Play all" button beside a section title. Material reserves 48dp around every
+ * clickable and gives a button a 40dp minimum height, which made a header carrying this button
+ * 20dp taller than one without it. This one is only its text plus 2dp above and below, so a header
+ * with the button and a header without it stand the same height. Fingers still get a 48dp target:
+ * Compose widens the touch bounds of anything smaller than that on its own.
+ */
+@Composable
+fun SectionHeaderButton(
+    text: String,
+    onClick: () -> Unit,
+) {
+    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+        TextButton(
+            onClick = onClick,
+            // Any non-zero minimum here keeps TextButton's own 40dp minimum height from applying.
+            modifier = Modifier.defaultMinSize(minHeight = 1.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
+            colors =
+                ButtonDefaults
+                    .textButtonColors()
+                    .copy(contentColor = MaterialTheme.colorScheme.onSurface),
+        ) {
+            Text(text, style = typo().bodySmall)
         }
     }
 }
@@ -280,7 +345,7 @@ fun HomeContentCard(
                         playlistId = playlistId,
                     ),
                 )
-            }, data = temp, fillMaxWidth = fillMaxWidth)
+            }, data = temp, fillMaxWidth = fillMaxWidth, onPlay = temp.hoverPlay(viewModel))
         }
     } else if ((browseId != null && temp.videoId == null) || (browseId != null && temp.videoId == "")) {
         if (browseId.startsWith("UC")) {
@@ -298,7 +363,7 @@ fun HomeContentCard(
                         podcastId = browseId,
                     ),
                 )
-            }, data = temp, fillMaxWidth = fillMaxWidth)
+            }, data = temp, fillMaxWidth = fillMaxWidth, onPlay = temp.hoverPlay(viewModel))
         } else {
             HomeItemContentPlaylist(onClick = {
                 navController.navigate(
@@ -306,7 +371,7 @@ fun HomeContentCard(
                         browseId = browseId,
                     ),
                 )
-            }, data = temp, fillMaxWidth = fillMaxWidth)
+            }, data = temp, fillMaxWidth = fillMaxWidth, onPlay = temp.hoverPlay(viewModel))
         }
     } else if (temp.thumbnails.firstOrNull()?.width != temp.thumbnails.firstOrNull()?.height) {
         HomeItemVideo(
@@ -314,6 +379,7 @@ fun HomeContentCard(
             onLongClick = { onLongClick(temp) },
             data = temp,
             fillMaxWidth = fillMaxWidth,
+            onPlay = temp.hoverPlay(viewModel),
         )
     } else {
         HomeItemSong(
@@ -321,6 +387,96 @@ fun HomeContentCard(
             onLongClick = { onLongClick(temp) },
             data = temp,
             fillMaxWidth = fillMaxWidth,
+            onPlay = temp.hoverPlay(viewModel),
+        )
+    }
+}
+
+/**
+ * The card's hover play button. A song or video plays exactly as a tap on the card does, so every
+ * one of them gets it. A playlist or album plays what YouTube's own play button points at, straight
+ * from Home; a playlist card that came without one still plays by its id. Artists and podcasts,
+ * which have nothing to play, get no button.
+ */
+private fun Content.hoverPlay(viewModel: BaseViewModel): (() -> Unit)? {
+    if (!videoId.isNullOrEmpty()) return { playRadio(viewModel) }
+    val endpoint =
+        playEndpoint
+            ?: playlistId?.takeUnless { it.startsWith("UC") }?.let { YouTubeWatchEndpoint(playlistId = it.removePrefix("VL")) }
+            ?: return null
+    return { viewModel.playFromEndpoint(endpoint, title) }
+}
+
+/**
+ * Spotify-style hover for a Home card: while the pointer is over it, or keyboard focus is on it,
+ * the card sits on a faint onSurface tint and [HoverPlayButton] rises onto the artwork. Touch
+ * screens never hover, so phones keep the plain card. Returns the card's modifier (it has to come
+ * before the card's own focusable to see its focus) and whether the card is active.
+ */
+@Composable
+internal fun rememberCardHover(enabled: Boolean): Pair<Modifier, Boolean> {
+    val source = remember { MutableInteractionSource() }
+    val hovered by source.collectIsHoveredAsState()
+    var focused by remember { mutableStateOf(false) }
+    val active = enabled && (hovered || focused)
+    val tint by animateColorAsState(
+        targetValue = if (active) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f) else Color.Transparent,
+        label = "cardHoverTint",
+    )
+    val modifier =
+        Modifier
+            .onFocusChanged { focused = it.isFocused }
+            .hoverable(source)
+            .drawBehind { drawRoundRect(color = tint, cornerRadius = CornerRadius(8.dp.toPx())) }
+    return modifier to active
+}
+
+/**
+ * Zooms a hovered Home card's artwork inside its own frame. It goes after the frame's clip, so the
+ * picture grows while the frame stays put and never spills onto the next card in the row.
+ */
+@Composable
+internal fun Modifier.hoverZoom(active: Boolean): Modifier {
+    val scale by animateFloatAsState(
+        targetValue = if (active) 1.06f else 1f,
+        animationSpec = tween(200),
+        label = "hoverZoom",
+    )
+    return graphicsLayer {
+        scaleX = scale
+        scaleY = scale
+    }
+}
+
+/** The theme-coloured play button of a hovered Home card, rising onto the artwork's corner. */
+@Composable
+internal fun BoxScope.HoverPlayButton(
+    visible: Boolean,
+    onClick: () -> Unit,
+) {
+    val progress by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(200),
+        label = "hoverPlay",
+    )
+    Box(
+        Modifier
+            .align(Alignment.BottomEnd)
+            .padding(8.dp)
+            .graphicsLayer {
+                alpha = progress
+                translationY = (1f - progress) * 8.dp.toPx()
+            }.size(44.dp)
+            .shadow(6.dp, CircleShape)
+            .background(MaterialTheme.colorScheme.primary, CircleShape)
+            .clickable(enabled = visible, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = SimpIcons.PlayArrow,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onPrimary,
+            modifier = Modifier.size(24.dp),
         )
     }
 }
@@ -335,14 +491,14 @@ fun Content.homeCardAspectRatio(): Float {
     return if (!opensPage && wide) 16f / 9f else 1f
 }
 
-private fun Content.playRadio(viewModel: BaseViewModel) {
+internal fun Content.playRadio(viewModel: BaseViewModel) {
     val firstQueue: Track = toTrack()
     viewModel.setQueueData(
         QueueData.Data(
             listTracks = arrayListOf(firstQueue),
             firstPlayedTrack = firstQueue,
             playlistId = "RDAMVM$videoId",
-            playlistName = title,
+            playlistName = "\"$title\" ${getStringBlocking(Res.string.radio)}",
             playlistType = PlaylistType.RADIO,
             continuation = null,
         ),
@@ -393,11 +549,15 @@ fun HomeItemContentPlaylist(
     forceDark: Boolean = LocalForceDarkText.current,
     // Fill a grid cell instead of the fixed thumbSize, as Metrolist's browse grid does.
     fillMaxWidth: Boolean = false,
+    // Home's hover play button; null leaves the card exactly as it was.
+    onPlay: (() -> Unit)? = null,
 ) {
     val titleColor = if (forceDark) Color.White else MaterialTheme.colorScheme.onSurface
     val textWidth = if (fillMaxWidth) Modifier.fillMaxWidth() else Modifier.width(thumbSize)
+    val (hoverModifier, hovered) = rememberCardHover(enabled = onPlay != null)
     Box(
         Modifier
+            .then(hoverModifier)
             .wrapContentSize()
             .focusable(true)
             .clip(RoundedCornerShape(8.dp))
@@ -439,90 +599,93 @@ fun HomeItemContentPlaylist(
                     is MonthlyRecapItem -> null
                     else -> null
                 }
-            AsyncImage(
-                model =
-                    ImageRequest
-                        .Builder(LocalPlatformContext.current)
-                        .data(thumb)
-                        .diskCachePolicy(CachePolicy.ENABLED)
-                        .diskCacheKey(thumb)
-                        .crossfade(550)
-                        .build(),
-                placeholder =
-                    when (data) {
-                        is LocalPlaylistEntity -> {
-                            painterPlaylistThumbnail(
-                                data.title,
-                                style = typo().bodySmall,
-                                thumbSize * 0.9f to thumbSize * 0.9f,
-                            )
-                        }
+            Box {
+                AsyncImage(
+                    model =
+                        ImageRequest
+                            .Builder(LocalPlatformContext.current)
+                            .data(thumb)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .diskCacheKey(thumb)
+                            .crossfade(550)
+                            .build(),
+                    placeholder =
+                        when (data) {
+                            is LocalPlaylistEntity -> {
+                                painterPlaylistThumbnail(
+                                    data.title,
+                                    style = typo().bodySmall,
+                                    thumbSize * 0.9f to thumbSize * 0.9f,
+                                )
+                            }
 
-                        is ChartItem -> {
-                            painterPlaylistThumbnail(
-                                data.name,
-                                style = typo().bodySmall,
-                                thumbSize * 0.9f to thumbSize * 0.9f,
-                            )
-                        }
+                            is ChartItem -> {
+                                painterPlaylistThumbnail(
+                                    data.name,
+                                    style = typo().bodySmall,
+                                    thumbSize * 0.9f to thumbSize * 0.9f,
+                                )
+                            }
 
-                        // A month whose top song has no artwork still has a name, and the
-                        // deterministic title tile reads as a playlist where the grey holder
-                        // reads as a failed load.
-                        is MonthlyRecapItem -> {
-                            painterPlaylistThumbnail(
-                                data.title,
-                                style = typo().bodySmall,
-                                thumbSize * 0.9f to thumbSize * 0.9f,
-                            )
-                        }
+                            // A month whose top song has no artwork still has a name, and the
+                            // deterministic title tile reads as a playlist where the grey holder
+                            // reads as a failed load.
+                            is MonthlyRecapItem -> {
+                                painterPlaylistThumbnail(
+                                    data.title,
+                                    style = typo().bodySmall,
+                                    thumbSize * 0.9f to thumbSize * 0.9f,
+                                )
+                            }
 
-                        else -> {
-                            rememberHolderPainter()
-                        }
-                    },
-                error =
-                    when (data) {
-                        is LocalPlaylistEntity -> {
-                            painterPlaylistThumbnail(
-                                data.title,
-                                style = typo().bodySmall,
-                                thumbSize * 0.9f to thumbSize * 0.9f,
-                            )
-                        }
+                            else -> {
+                                rememberHolderPainter()
+                            }
+                        },
+                    error =
+                        when (data) {
+                            is LocalPlaylistEntity -> {
+                                painterPlaylistThumbnail(
+                                    data.title,
+                                    style = typo().bodySmall,
+                                    thumbSize * 0.9f to thumbSize * 0.9f,
+                                )
+                            }
 
-                        is ChartItem -> {
-                            painterPlaylistThumbnail(
-                                data.name,
-                                style = typo().bodySmall,
-                                thumbSize * 0.9f to thumbSize * 0.9f,
-                            )
-                        }
+                            is ChartItem -> {
+                                painterPlaylistThumbnail(
+                                    data.name,
+                                    style = typo().bodySmall,
+                                    thumbSize * 0.9f to thumbSize * 0.9f,
+                                )
+                            }
 
-                        // A month whose top song has no artwork still has a name, and the
-                        // deterministic title tile reads as a playlist where the grey holder
-                        // reads as a failed load.
-                        is MonthlyRecapItem -> {
-                            painterPlaylistThumbnail(
-                                data.title,
-                                style = typo().bodySmall,
-                                thumbSize * 0.9f to thumbSize * 0.9f,
-                            )
-                        }
+                            // A month whose top song has no artwork still has a name, and the
+                            // deterministic title tile reads as a playlist where the grey holder
+                            // reads as a failed load.
+                            is MonthlyRecapItem -> {
+                                painterPlaylistThumbnail(
+                                    data.title,
+                                    style = typo().bodySmall,
+                                    thumbSize * 0.9f to thumbSize * 0.9f,
+                                )
+                            }
 
-                        else -> {
-                            rememberHolderPainter()
-                        }
-                    },
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier =
-                    (if (fillMaxWidth) Modifier.fillMaxWidth() else Modifier.size(thumbSize))
-                        .aspectRatio(1f)
-                        .clip(
-                            RoundedCornerShape(10.dp),
-                        ),
-            )
+                            else -> {
+                                rememberHolderPainter()
+                            }
+                        },
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier =
+                        (if (fillMaxWidth) Modifier.fillMaxWidth() else Modifier.size(thumbSize))
+                            .aspectRatio(1f)
+                            .clip(
+                                RoundedCornerShape(10.dp),
+                            ).hoverZoom(hovered),
+                )
+                if (onPlay != null) HoverPlayButton(visible = hovered, onClick = onPlay)
+            }
             Text(
                 text =
                     when (data) {
@@ -720,7 +883,12 @@ fun QuickPicksItem(
                                 velocity = 25.dp,
                             ),
                 )
-                LazyRow(verticalAlignment = Alignment.CenterVertically) {
+                val subtitleRowState = rememberLazyListState()
+                LazyRow(
+                    modifier = Modifier.mouseDragScroll(subtitleRowState),
+                    state = subtitleRowState,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     item {
                         androidx.compose.animation.AnimatedVisibility(visible = data.isExplicit == true) {
                             ExplicitBadge(
@@ -731,6 +899,9 @@ fun QuickPicksItem(
                                         .weight(1f),
                             )
                         }
+                    }
+                    if (data.isLive) {
+                        item { LiveBadge(modifier = Modifier.padding(end = 6.dp)) }
                     }
                     item {
                         Text(
@@ -764,11 +935,15 @@ fun HomeItemSong(
     data: Content,
     // Fill a grid cell instead of the fixed 160dp, as Metrolist's browse grid does.
     fillMaxWidth: Boolean = false,
+    // Home's hover play button; null leaves the card exactly as it was.
+    onPlay: (() -> Unit)? = null,
 ) {
     val textWidth = if (fillMaxWidth) Modifier.fillMaxWidth() else Modifier.width(160.dp)
+    val (hoverModifier, hovered) = rememberCardHover(enabled = onPlay != null)
     Box(
         modifier =
             Modifier
+                .then(hoverModifier)
                 .fillMaxSize()
                 .focusable(true)
                 .clip(RoundedCornerShape(8.dp))
@@ -791,28 +966,29 @@ fun HomeItemSong(
                         it
                     }
                 }
-            Logger.w("AsyncImage", "HomeItemSong: $thumb")
-            AsyncImage(
-                model =
-                    ImageRequest
-                        .Builder(LocalPlatformContext.current)
-                        .data(thumb)
-                        .diskCachePolicy(CachePolicy.ENABLED)
-                        .diskCacheKey(thumb)
-                        .crossfade(550)
-                        .build(),
-                placeholder = rememberHolderPainter(),
-                error = rememberHolderPainter(),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier =
-                    Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .then(if (fillMaxWidth) Modifier.fillMaxWidth().aspectRatio(1f) else Modifier.size(160.dp))
-                        .clip(
-                            RoundedCornerShape(10.dp),
-                        ),
-            )
+            Box(Modifier.align(Alignment.CenterHorizontally)) {
+                AsyncImage(
+                    model =
+                        ImageRequest
+                            .Builder(LocalPlatformContext.current)
+                            .data(thumb)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .diskCacheKey(thumb)
+                            .crossfade(550)
+                            .build(),
+                    placeholder = rememberHolderPainter(),
+                    error = rememberHolderPainter(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier =
+                        Modifier
+                            .then(if (fillMaxWidth) Modifier.fillMaxWidth().aspectRatio(1f) else Modifier.size(160.dp))
+                            .clip(
+                                RoundedCornerShape(10.dp),
+                            ).hoverZoom(hovered),
+                )
+                if (onPlay != null) HoverPlayButton(visible = hovered, onClick = onPlay)
+            }
             Text(
                 text = data.title,
                 style = typo().titleSmall,
@@ -870,11 +1046,15 @@ fun HomeItemVideo(
     forceDark: Boolean = LocalForceDarkText.current,
     // Fill a grid cell instead of the fixed 284.5dp, as Metrolist's browse grid does.
     fillMaxWidth: Boolean = false,
+    // Home's hover play button; null leaves the card exactly as it was.
+    onPlay: (() -> Unit)? = null,
 ) {
     val titleColor = if (forceDark) Color.White else MaterialTheme.colorScheme.onSurface
     val textWidth = if (fillMaxWidth) Modifier.fillMaxWidth() else Modifier.width(284.5.dp)
+    val (hoverModifier, hovered) = rememberCardHover(enabled = onPlay != null)
     Box(
         Modifier
+            .then(hoverModifier)
             .fillMaxSize()
             .focusable(true)
             .clip(RoundedCornerShape(8.dp))
@@ -890,29 +1070,30 @@ fun HomeItemVideo(
                     .heightIn(min = 230.dp),
         ) {
             val thumb = data.thumbnails.lastOrNull()?.url
-            Logger.w("AsyncImage", "HomeItemSong: $thumb")
-            AsyncImage(
-                model =
-                    ImageRequest
-                        .Builder(LocalPlatformContext.current)
-                        .data(thumb)
-                        .diskCachePolicy(CachePolicy.ENABLED)
-                        .diskCacheKey(thumb)
-                        .crossfade(550)
-                        .build(),
-                placeholder = rememberHolderPainter(isVideo = true),
-                error = rememberHolderPainter(isVideo = true),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier =
-                    Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .then(if (fillMaxWidth) Modifier.fillMaxWidth() else Modifier.height(160.dp))
-                        .aspectRatio(16f / 9f)
-                        .clip(
-                            RoundedCornerShape(10.dp),
-                        ),
-            )
+            Box(Modifier.align(Alignment.CenterHorizontally)) {
+                AsyncImage(
+                    model =
+                        ImageRequest
+                            .Builder(LocalPlatformContext.current)
+                            .data(thumb)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .diskCacheKey(thumb)
+                            .crossfade(550)
+                            .build(),
+                    placeholder = rememberHolderPainter(),
+                    error = rememberHolderPainter(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier =
+                        Modifier
+                            .then(if (fillMaxWidth) Modifier.fillMaxWidth() else Modifier.height(160.dp))
+                            .aspectRatio(16f / 9f)
+                            .clip(
+                                RoundedCornerShape(10.dp),
+                            ).hoverZoom(hovered),
+                )
+                if (onPlay != null) HoverPlayButton(visible = hovered, onClick = onPlay)
+            }
             Text(
                 text = data.title,
                 style = typo().titleSmall,
@@ -964,7 +1145,7 @@ fun HomeItemVideo(
  * SemiBold, which made the chip taller than the line it sits on.
  */
 @Composable
-private fun LiveBadge(modifier: Modifier = Modifier) {
+internal fun LiveBadge(modifier: Modifier = Modifier) {
     Text(
         text = stringResource(Res.string.live_badge),
         style = typo().bodySmall.copy(fontSize = 9.sp, lineHeight = 11.sp, fontWeight = FontWeight.Bold),
@@ -1007,7 +1188,6 @@ fun HomeItemArtist(
                     .heightIn(min = 230.dp),
         ) {
             val thumb = data.thumbnails.lastOrNull()?.url
-            Logger.w("AsyncImage", "HomeItemSong: $thumb")
             AsyncImage(
                 model =
                     ImageRequest
@@ -1126,7 +1306,6 @@ fun ItemVideoChart(
                     .padding(10.dp),
         ) {
             val thumb = data.thumbnails.lastOrNull()?.url
-            Logger.w("AsyncImage", "HomeItemSong: $thumb")
             AsyncImage(
                 model =
                     ImageRequest
@@ -1136,8 +1315,8 @@ fun ItemVideoChart(
                         .diskCacheKey(thumb)
                         .crossfade(550)
                         .build(),
-                placeholder = rememberHolderPainter(isVideo = true),
-                error = rememberHolderPainter(isVideo = true),
+                placeholder = rememberHolderPainter(),
+                error = rememberHolderPainter(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier =
@@ -1240,7 +1419,6 @@ fun ItemArtistChart(
                         .padding(end = 20.dp),
             )
             val thumb = data.thumbnails.lastOrNull()?.url
-            Logger.w("AsyncImage", "HomeItemSong: $thumb")
             AsyncImage(
                 model =
                     ImageRequest
@@ -1349,7 +1527,6 @@ fun ItemTrackChart(
                 }
             }
             val thumb = data.thumbnails?.lastOrNull()?.url
-            Logger.w("AsyncImage", "HomeItemSong: $thumb")
             AsyncImage(
                 model =
                     ImageRequest
@@ -1439,11 +1616,14 @@ fun MoodAndGenresContentItem(
                         horizontal = 15.dp,
                     ).fillMaxWidth(),
         )
+        val rowState = rememberLazyListState()
         LazyRow(
             modifier =
-                Modifier.padding(
-                    10.dp,
-                ),
+                Modifier
+                    .padding(
+                        10.dp,
+                    ).mouseDragScroll(rowState),
+            state = rowState,
         ) {
             val itemList =
                 when (data) {
