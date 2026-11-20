@@ -399,6 +399,14 @@ function resetSession() {
   document.querySelector('.confirm-scrim')?.remove();
 }
 const isAdmin = () => state.user?.role === 'admin';
+// Opciones de "Extender" del admin: los planes activos (con su regalo) + "Otra" en días.
+// Sin 08_planes.sql en el servidor se usan las opciones de antes.
+function adminExtOptions() {
+  const plans = state.opts?.plans?.filter(p => p.active);
+  if (!plans) return '<option value="24">+1 día</option><option value="168">+7 días</option><option value="720" selected>+1 mes</option><option value="8640">+12 meses</option>';
+  return plans.map((p, i) => `<option value="plan:${p.months}" ${i === 0 ? 'selected' : ''}>+${fmtHours(p.months * 720)}${p.bonus_months ? ` (+${plural(p.bonus_months, 'mes', 'meses')} de regalo)` : ''}</option>`).join('')
+    + `<option value="other" ${plans.length ? '' : 'selected'}>Otra (días)…</option>`;
+}
 // Opciones antiguas: solo se usan si el servidor aún no tiene 08_planes.sql.
 const LEGACY_PRESETS = [[6, '6 horas'], [24, '1 día'], [168, '7 días'], [720, '1 mes'], [1440, '2 meses'], [2160, '3 meses'], [4320, '6 meses'], [8640, '12 meses'], [0, 'Otra']];
 // Botones de duración del formulario: demo + planes activos (+ "Otra" para el admin).
@@ -801,9 +809,11 @@ async function openCode(code) {
       ${admin && !code.voided_at ? `<div style="display:grid;gap:8px">
         <h3 class="section-title" style="font-size:14px">Extender</h3>
         <div class="row">
-          <select class="in" id="extH" style="flex:1"><option value="24">+1 día</option><option value="168">+7 días</option><option value="720" selected>+1 mes</option><option value="8640">+12 meses</option></select>
+          <select class="in" id="extH" style="flex:1">${adminExtOptions()}</select>
+          <input class="in" id="extDays" type="number" min="1" max="3650" value="1" style="width:90px" hidden aria-label="Días">
           <button class="btn" id="extBtn">Extender</button>
-        </div></div>` : ''}
+        </div>
+        <p class="help" id="extHelp">Solo aparecen los planes activos (Ajustes). "Otra" suma días libres, sin regalo.</p></div>` : ''}
       <div class="row">
         ${canDisable ? `<button class="btn ghost" id="disBtn" style="color:var(--bad)">${used ? 'Deshabilitar' : 'Anular'}</button>` : ''}
         ${admin && code.disabled && !code.voided_at ? '<button class="btn ghost" id="enBtn">Habilitar</button>' : ''}
@@ -819,8 +829,22 @@ async function openCode(code) {
     const fr = e.target.closest('[data-free]');
     if (fr) { fr.disabled = true; try { await api.freeDevice(code.id, fr.dataset.free); toast('Dispositivo liberado'); } catch (err) { toast(err.message); } refresh(true); }
   });
+  $('#extH') && ($('#extH').onchange = () => { $('#extDays').hidden = $('#extH').value !== 'other'; });
+  $('#extH') && $('#extH').onchange();
   $('#extBtn') && ($('#extBtn').onclick = async () => {
-    try { await api.extend(code.id, +$('#extH').value); toast('Código extendido'); refresh(true); } catch (err) { toast(err.message); }
+    const v = $('#extH').value;
+    try {
+      if (v === 'other') {
+        const days = Math.round(+$('#extDays').value);
+        if (!(days >= 1 && days <= 3650)) return toast('Indica los días a sumar (1 a 3650)');
+        await api.extend(code.id, days * 24);
+      } else if (v.startsWith('plan:')) {
+        await api.extendPlan(code.id, +v.slice(5));
+      } else {
+        await api.extend(code.id, +v);
+      }
+      toast('Código extendido'); refresh(true);
+    } catch (err) { toast(err.message); }
   });
   $('#extPlanBtn') && ($('#extPlanBtn').onclick = () => {
     const m = +$('#extPlan').value, pl = resellerPlans.find(p => p.months === m);
