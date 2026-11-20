@@ -390,6 +390,14 @@ const api = {
 const state = { user: null, tab: 'codes', q: '', status: 'all', service: '', page: 0, demoPage: 0,
   preset: null, genService: '', generated: [], services: [], userNames: {}, open: null,
   batches: [], batchKey: '', listBatch: null, opts: null };
+// Al cambiar de usuario (salir / entrar) se borra todo lo de la sesión anterior:
+// si no, lo "recién generado" y los filtros de un usuario aparecían al siguiente.
+function resetSession() {
+  Object.assign(state, { tab: 'codes', q: '', status: 'all', service: '', page: 0, demoPage: 0,
+    preset: null, genService: '', generated: [], services: [], userNames: {}, open: null,
+    batches: [], batchKey: '', listBatch: null, opts: null, rows: [] });
+  document.querySelector('.confirm-scrim')?.remove();
+}
 const isAdmin = () => state.user?.role === 'admin';
 // Opciones antiguas: solo se usan si el servidor aún no tiene 08_planes.sql.
 const LEGACY_PRESETS = [[6, '6 horas'], [24, '1 día'], [168, '7 días'], [720, '1 mes'], [1440, '2 meses'], [2160, '3 meses'], [4320, '6 meses'], [8640, '12 meses'], [0, 'Otra']];
@@ -443,7 +451,7 @@ function renderLogin(error = '') {
     e.preventDefault(); $('#loginBtn').disabled = true;
     try {
       await api.signIn($('#email').value.trim(), $('#password').value);
-      state.user = await loadProfile(); await startShell();
+      resetSession(); state.user = await loadProfile(); await startShell();
     } catch (err) {
       await api.signOut();
       const m = err.message;
@@ -477,7 +485,7 @@ function renderShell() {
   <main class="wrap" id="view"></main>
   <div id="drawerRoot"></div>`;
   $('.tabs').addEventListener('click', e => { const t = e.target.closest('[data-tab]'); if (t) { state.tab = t.dataset.tab; renderTab(); } });
-  $('#logout').addEventListener('click', async () => { await api.signOut(); state.user = null; renderLogin(); });
+  $('#logout').addEventListener('click', async () => { await api.signOut(); state.user = null; resetSession(); renderLogin(); });
   renderTab();
 }
 
