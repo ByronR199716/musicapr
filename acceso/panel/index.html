@@ -353,6 +353,7 @@ const api = {
   async devices(codeId) { return must(await sb.from('code_devices').select('*').eq('code_id', codeId).order('first_seen')); },
   async freeDevice(codeId, deviceId) { must(await sb.from('code_devices').delete().eq('code_id', codeId).eq('device_id', deviceId)); },
   async extend(id, hours) { return must(await sb.rpc('admin_extend_code', { p_id: id, p_hours: hours })); },
+  async extendPlan(id, months) { return must(await sb.rpc('extend_code', { p_id: id, p_months: months })); },
   async disable(id) { return must(await sb.rpc('disable_code', { p_id: id })); },
   async enable(id) { must(await sb.rpc('admin_enable_code', { p_id: id })); },
   async remove(id) { must(await sb.rpc('admin_delete_code', { p_id: id })); },
@@ -761,6 +762,7 @@ async function openCode(code) {
   const s = statusOf(code);
   const used = !!code.activated_at || devs.length > 0;
   const canDisable = !code.disabled;
+  const resellerPlans = (state.opts?.plans || []).filter(p => p.active);
   const d = drawer(`<div class="gcode" style="font-size:19px">${fmtCode(code.code)}</div>`, `<div class="row">${pill(s)}<span class="svc-tag">${esc(svcName(code.service_id))}</span></div>`, `
       <div class="row"><button class="btn ghost sm" data-copy="${fmtCode(code.code)}">Copiar código</button></div>
       <dl class="kv">
@@ -780,6 +782,14 @@ async function openCode(code) {
           ${admin ? `<button class="btn ghost sm" data-free="${esc(d.device_id)}">Liberar</button>` : ''}</div>`).join('') : `<div class="empty">Aún no se usa en ningún dispositivo.</div>`}
         ${admin ? '<p class="help">Liberar un dispositivo deja ese espacio libre, por ejemplo si el usuario cambió de celular.</p>' : ''}
       </div>
+      ${!admin && !code.voided_at && !code.disabled && resellerPlans.length ? `<div style="display:grid;gap:8px">
+        <h3 class="section-title" style="font-size:14px">Extender</h3>
+        <div class="row">
+          <select class="in" id="extPlan" style="flex:1">${resellerPlans.map(p => `<option value="${p.months}">+${fmtHours(p.months * 720)}${p.bonus_months ? ` (+${plural(p.bonus_months, 'mes', 'meses')} de regalo)` : ''} · ${plural(p.months, 'crédito', 'créditos')}</option>`).join('')}</select>
+          <button class="btn" id="extPlanBtn">Extender</button>
+        </div>
+        <p class="help">Se descuentan los créditos del plan. Si el código está vencido, se reactiva desde hoy.</p>
+        <div id="extConfirm"></div></div>` : ''}
       ${admin && !code.voided_at ? `<div style="display:grid;gap:8px">
         <h3 class="section-title" style="font-size:14px">Extender</h3>
         <div class="row">
@@ -803,6 +813,12 @@ async function openCode(code) {
   });
   $('#extBtn') && ($('#extBtn').onclick = async () => {
     try { await api.extend(code.id, +$('#extH').value); toast('Código extendido'); refresh(true); } catch (err) { toast(err.message); }
+  });
+  $('#extPlanBtn') && ($('#extPlanBtn').onclick = () => {
+    const m = +$('#extPlan').value, pl = resellerPlans.find(p => p.months === m);
+    confirmBox($('#extConfirm'), `¿Extender ${fmtCode(code.code)} con ${fmtHours(m * 720)}${pl?.bonus_months ? ` + ${plural(pl.bonus_months, 'mes', 'meses')} de regalo` : ''}? Se descontarán ${plural(m, 'crédito', 'créditos')}.`, 'Sí, extender', async () => {
+      try { await api.extendPlan(code.id, m); toast('Código extendido'); refresh(true); } catch (err) { toast(err.message); }
+    });
   });
   $('#disBtn') && ($('#disBtn').onclick = () => {
     const refundTxt = code.credits_cost && code.created_by ? ` Se devolverán ${plural(code.credits_cost, 'crédito', 'créditos')}.` : '';
